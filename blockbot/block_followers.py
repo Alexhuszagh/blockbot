@@ -33,35 +33,66 @@ from . import collections
 from . import log
 from . import whitelist
 
+# Logger for BlockFollowers.
+LOGGER = log.new_logger('BlockFollowers')
+# Previously processed account screen names.
+ACCOUNTS_PROCESSED = collections.wired_tiger_dict(
+    name='BlockFollowersProcessedAccounts',
+    value_format='r'    # cursor
+)
 # Previously seen account screen names.
-ACCOUNTS_SEEN = collections.wired_tiger_set('BlockFollowersAccountsSeen')
+FOLLOWERS_SEEN = collections.wired_tiger_set(
+    name='BlockFollowersSeenFollowers'
+)
 # Previously blocked account screen names.
-ACCOUNTS_BLOCKED = collections.wired_tiger_set('BlockFollowersAccountsBlocked')
-
+FOLLOWERS_BLOCKED = collections.wired_tiger_set(
+    name='BlockFollowersBlockedFollowers'
+)
 
 def followers(api, screen_name):
     '''Get user objects for all followers of an account.'''
 
-    log.info(f'Getting followers for {screen_name}.')
+    # Get the current cursor.
+    # Can be an integer or None.
+    cursor = ACCOUNTS_PROCESSED.get(screen_name)
+    if cursor == 0:
+        # Previously finished the account, don't make any API requests.
+        return
+
+    LOGGER.info(f'Getting followers for {screen_name}.')
     try:
-        for user in tweepy.Cursor(api.followers, screen_name=screen_name).items():
-            yield user
+        curr = tweepy.Cursor(
+            api.followers,
+            screen_name=screen_name,
+            cursor=cursor
+        )
+        for page in curr.pages():
+            yield from page
+            ACCOUNTS_PROCESSED[screen_name] = curr.iterator.next_cursor
     except tweepy.TweepError:
-        log.warn(f'Unable to get followers for account {screen_name}')
+        LOGGER.warn(f'Unable to get followers for account {screen_name}')
+
+    # Store that all followers have been processed for account.
+    ACCOUNTS_PROCESSED[screen_name] = 0
 
 
 def block_account(api, me, user, whiteset, **kwds):
     '''Block account if not white-listed.'''
 
-    if user.screen_name in ACCOUNTS_SEEN:
+    # Allow repeated requests without incurring API limits.
+    if user.screen_name in FOLLOWERS_SEEN:
         return
 
-    ACCOUNTS_SEEN.add(user.screen_name)
     if whitelist.should_block_user(api, me, user, whiteset, **kwds):
-        ACCOUNTS_BLOCKED.add(user.screen_name)
-        log.info(f'Blocked user={user.screen_name}')
         if not getattr(user, 'blocking', False):
             api.create_block(screen_name=user.screen_name)
+
+        # Memoize blocked account.
+        LOGGER.info(f'Blocked user={user.screen_name}')
+        FOLLOWERS_BLOCKED.add(user.screen_name)
+
+    # Memoize seen account.
+    FOLLOWERS_SEEN.add(user.screen_name)
 
 
 def block_followers(accounts, whitelist=None, **kwds):

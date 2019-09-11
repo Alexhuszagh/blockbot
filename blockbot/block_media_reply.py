@@ -33,43 +33,61 @@ from . import collections
 from . import log
 from . import whitelist
 
-# Previously seen Tweets we don't want to re-process.
-TWEETS_SEEN = collections.wired_tiger_set('BlockMediaReplyTweetsSeen')
-# Previously seen account screen names.
-ACCOUNTS_SEEN = collections.wired_tiger_set('BlockMediaReplyAccountsSeen')
-# Previously blocked account screen names.
-ACCOUNTS_BLOCKED = collections.wired_tiger_set('BlockMediaReplyAccountsBlocked')
+# Logger for BlockMediaReply.
+LOGGER = log.new_logger('BlockMediaReply')
+# Previously processed Tweets we don't want to re-process.
+TWEETS_PROCESSED = collections.wired_tiger_dict(
+    name='BlockMediaReplyProcessedTweets',
+    value_format='r'    # max_id
+)
+# Previously seen account screen names of repliers.
+ACCOUNTS_SEEN = collections.wired_tiger_set(
+    name='BlockMediaReplySeenReplyAccounts'
+)
+# Previously blocked account screen names of replier.
+ACCOUNTS_BLOCKED = collections.wired_tiger_set(
+    name='BlockMediaReplyBlockedReplyAccounts'
+)
 
 
 def tweets(api, screen_name):
     '''Get full Tweet objects for'''
 
-    log.info(f'Getting tweets for {screen_name}.')
+    LOGGER.info(f'Getting tweets for {screen_name}.')
     try:
         for status in tweepy.Cursor(api.user_timeline, screen_name=screen_name).items():
             yield status
     except tweepy.TweepError:
-        log.warn(f'Unable to get tweets for account {screen_name}')
+        LOGGER.warn(f'Unable to get tweets for account {screen_name}')
 
 
 def replies(api, tweet, previous_id=None):
     '''Find replies to Tweet.'''
 
-    if tweet.id_str in TWEETS_SEEN:
+    max_id = TWEETS_PROCESSED.get(tweet.id_str)
+    if max_id == 0:
+        # Previously finished the tweet, don't make any API requests.
         return
 
-    log.info(f'Finding replies to Tweet id {tweet.id}.')
+    LOGGER.info(f'Finding replies to Tweet id {tweet.id}.')
     query = f'to:{tweet.user.screen_name} since_id:{tweet.id}'
     if previous_id is not None:
         query += f' max_id:{previous_id}'
     try:
-        for reply in tweepy.Cursor(api.search, q=query, count=100).items():
-            yield reply
+        curr = tweepy.Cursor(
+            api.search,
+            q=query,
+            count=100,
+            max_id=max_id
+        )
+        for page in curr.pages():
+            yield from page
+            TWEETS_PROCESSED[tweet.id_str] = curr.iterator.max_id
     except tweepy.TweepError:
-        log.warn(f'Unable to get replies to Tweet {tweet.id}')
+        LOGGER.warn(f'Unable to get replies to Tweet {tweet.id}')
 
-    # Add after all-processed.
-    TWEETS_SEEN.add(tweet.id_str)
+    # Store that all replies have been processed for Tweet.
+    TWEETS_PROCESSED[tweet.id_str] = 0
 
 
 def media_has_photo(media):
@@ -114,12 +132,16 @@ def block_account(api, me, user, whiteset, **kwds):
     if user.screen_name in ACCOUNTS_SEEN:
         return
 
-    ACCOUNTS_SEEN.add(user.screen_name)
     if whitelist.should_block_user(api, me, user, whiteset, **kwds):
-        ACCOUNTS_BLOCKED.add(user.screen_name)
-        log.info(f'Blocked user={user.screen_name}')
         if not getattr(user, 'blocking', False):
             api.create_block(screen_name=user.screen_name)
+
+        # Memoize blocked account.
+        LOGGER.info(f'Blocked user={user.screen_name}')
+        ACCOUNTS_BLOCKED.add(user.screen_name)
+
+    # Memoize seen account.
+    ACCOUNTS_SEEN.add(user.screen_name)
 
 
 def block_media_reply(screen_name, whitelist=None, **kwds):

@@ -125,8 +125,8 @@ class WiredTigerBase:
 class WiredTigerDict(WiredTigerBase, collections.abc.MutableMapping):
     '''File-backed store resembling a Python dict. Lazily opened.'''
 
-    def __init__(self, name: str) -> None:
-        super().__init__(path.db_dir(), name, 'S', 'S')
+    def __init__(self, name: str, key_format='S', value_format='S') -> None:
+        super().__init__(path.db_dir(), name, key_format, value_format)
 
     def __getitem__(self, key):
         if not self.is_open():
@@ -155,8 +155,8 @@ class WiredTigerDict(WiredTigerBase, collections.abc.MutableMapping):
 class WiredTigerSet(WiredTigerBase, collections.abc.MutableSet):
     '''File-backed store resembling a Python set. Lazily opened.'''
 
-    def __init__(self, name: str) -> None:
-        super().__init__(path.db_dir(), name, 'S', 'x')
+    def __init__(self, name: str, key_format='S') -> None:
+        super().__init__(path.db_dir(), name, key_format, 'x')
 
     def __contains__(self, key):
         if not self.is_open():
@@ -188,17 +188,21 @@ class WiredTigerSet(WiredTigerBase, collections.abc.MutableSet):
         raise NotImplementedError
 
 
-def wired_tiger_dict(name: str) -> WiredTigerDict:
+def wired_tiger_dict(
+    name: str,
+    key_format: str = 'S',
+    value_format: str = 'S'
+) -> WiredTigerDict:
     '''Generate dict with wiredtiger backing store.'''
 
-    inst = WiredTigerDict(name)
+    inst = WiredTigerDict(name, key_format, value_format)
     atexit.register(inst.close)
     return inst
 
 
-def wired_tiger_set(name: str) -> WiredTigerSet:
+def wired_tiger_set(name: str, key_format: str = 'S') -> WiredTigerSet:
     '''Generate set with wiredtiger backing store.'''
 
-    inst = WiredTigerSet(name)
+    inst = WiredTigerSet(name, key_format)
     atexit.register(inst.close)
     return inst
