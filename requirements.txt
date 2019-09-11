@@ -1,2 +1,3 @@
+daemon>=2.5.0
 wiredtiger>=3.2.1
 tweepy>=3.8.0

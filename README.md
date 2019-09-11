@@ -7,6 +7,8 @@ High-level utilities to make Twitter tolerable.
 
 - [Features](#features)
 - [Getting Started](#getting-started)
+- [Daemons](#daemons)
+- [Thread Safety](#thread-safety)
 - [License](#license)
 - [Contributing](#contributing)
 
@@ -14,6 +16,7 @@ High-level utilities to make Twitter tolerable.
 
 - Block Followers of an Account
 - Block Media Replies
+- Long-Running Queries (Daemons) 
 
 # Getting Started
 
@@ -77,6 +80,30 @@ blockbot.block_media_reply(screen_name, whitelist)
 #   whitelist_follow_request_sent (default True) - Do not block accounts you have sent follow requests to.
 #   whitelist_friendship (default True) - Do not block accounts that follow you or you follow.
 ``` 
+
+# Daemons
+
+Daemons are long-running tasks that run as background processes. Daemons are ideally suited to a Twitter block bot, so we provide utility functions to convert any feature into a daemon.
+
+Please note that only one tasks, whether it is a daemon or a function call, should be running at a single time.
+
+```python
+import blockbot
+
+# Block all replies to Tweets from @twitter with media in the replies.
+screen_name = 'twitter'
+# Optional list of accounts to whitelist: don't block the account
+# if they follow or are followed by @jack.
+whitelist = ['jack']
+# Pass the function name as the first argument, and any arguments
+# to the function after. This will start the task as a daemon.
+# This will exit the current interpreter.
+blockbot.as_daemon(blockbot.block_media_reply, screen_name, whitelist)
+```
+
+# Thread Safety
+
+Please note that nothing in this library is thread- or process-safe, and should not be run in multiple threads or processes with multi-threading or multi-processing. Since the bottleneck is both network I/O and Twitter's rate limits, neither multi-threading nor multi-processing makes sense and will not be supported.
 
 # License
 
