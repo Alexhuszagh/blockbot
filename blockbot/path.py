@@ -12,11 +12,11 @@ import tweepy
 
 def project_dir():
     '''Get the directory to the project folder.'''
-    return os.path.dirname(twitter_dir())
 
-def twitter_dir():
-    '''Get the directory to the twitter folder.'''
-    return os.path.dirname(os.path.realpath(__file__))
+    path = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+    if 'site-packages' in path:
+        return os.path.join(os.path.expanduser('~'), '.blockbot')
+    return path
 
 def config_dir():
     '''Get the directory to the config folder.'''

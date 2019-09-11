@@ -28,10 +28,12 @@ def new_logger(name):
     return logger
 
 
+os.makedirs(path.log_dir(), exist_ok=True)
 CURRENT_LOG_NAME = log_name()
+CURRENT_LOG_PATH = os.path.join(path.log_dir(), CURRENT_LOG_NAME)
 
 # File Handler
-FILE_HANDLER = logging.FileHandler(os.path.join(path.log_dir(), CURRENT_LOG_NAME))
+FILE_HANDLER = logging.FileHandler(CURRENT_LOG_PATH)
 FILE_HANDLER.setLevel(logging.DEBUG)
 
 # Stderr Handler

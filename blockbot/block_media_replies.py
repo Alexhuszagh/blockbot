@@ -1,6 +1,6 @@
 '''
-    block_media_reply
-    =================
+    block_media_replies
+    ===================
 
     Block all accounts that reply to an account with media in their reply.
 
@@ -23,7 +23,7 @@
 
         screen_name = 'twitter'
         whitelist = ['jack']
-        blockbot.block_media_reply(screen_name, whitelist)
+        blockbot.block_media_replies(screen_name, whitelist)
 '''
 
 import tweepy
@@ -34,19 +34,19 @@ from . import log
 from . import whitelist
 
 # Logger for BlockMediaReply.
-LOGGER = log.new_logger('BlockMediaReply')
+LOGGER = log.new_logger('BlockMediaReplies')
 # Previously processed Tweets we don't want to re-process.
 TWEETS_PROCESSED = collections.wired_tiger_dict(
-    name='BlockMediaReplyProcessedTweets',
+    name='BlockMediaRepliesProcessedTweets',
     value_format='r'    # max_id
 )
 # Previously seen account screen names of repliers.
 ACCOUNTS_SEEN = collections.wired_tiger_set(
-    name='BlockMediaReplySeenReplyAccounts'
+    name='BlockMediaRepliesSeenReplyAccounts'
 )
 # Previously blocked account screen names of replier.
 ACCOUNTS_BLOCKED = collections.wired_tiger_set(
-    name='BlockMediaReplyBlockedReplyAccounts'
+    name='BlockMediaRepliesBlockedReplyAccounts'
 )
 
 
@@ -144,7 +144,7 @@ def block_account(api, me, user, whiteset, **kwds):
     ACCOUNTS_SEEN.add(user.screen_name)
 
 
-def block_media_reply(screen_name, whitelist=None, **kwds):
+def block_media_replies(screen_name, whitelist=None, **kwds):
     '''
     Block all users who reply to an account with media in their reply.
 

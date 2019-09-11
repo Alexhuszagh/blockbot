@@ -58,6 +58,7 @@ HOME = os.path.dirname(os.path.realpath(__file__))
 with open(os.path.join(HOME, 'requirements.txt')) as f:
     REQUIRES = f.read().splitlines()
 
+SCRIPTS = [os.path.join('scripts', i) for i in os.listdir('scripts')]
 COMMANDS = {
     'test': shell_command(
         command=unittest_command("tests"),
@@ -65,9 +66,20 @@ COMMANDS = {
     ),
 }
 
+# Writeable configuration files to install.
+DATA_FILES = [
+    (os.path.join(os.path.expanduser('~'), '.blockbot', 'config'), [
+        'config/api.json',
+        'config/block_followers.json',
+        'config/block_media_replies.json',
+    ]),
+]
+
 setuptools.setup(
     install_requires=REQUIRES,
     python_requires=">=3.7",
+    scripts=SCRIPTS,
+    data_files=DATA_FILES,
     packages=PACKAGES,
     cmdclass=COMMANDS,
     zip_safe=False,
