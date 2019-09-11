@@ -59,7 +59,7 @@ blockbot.block_followers(accounts, whitelist)
 
 ## Block Media Replies
 
-Twitter has a major harassment problem, leading to "dogpiles". Often, a problematic user quotes a Tweet of yours, leading to large groups of their followers harassment you. blockbot allows you to block all followers of an account, to help stem the tide of harassment:
+Twitter prioritizes "native" media, which means media is an intrusive form of content on Twitter. Recently, groups of accounts have started spamming videos in replies to popular trends or in the replies of popular accounts. blockbot allows you to block these accounts automatically:
 
 ```python
 import blockbot
@@ -74,7 +74,7 @@ blockbot.block_media_reply(screen_name, whitelist)
 # Valid keywords to customize blocking behavior:
 #   whitelist_photo (default True) - Do not block media replies containing photos.
 #   whitelist_animated_gif (default False) - Do not block media replies containing animated GIFs.
-#   whitelist_video (default False) - Do not block media replies containing animated GIFs.
+#   whitelist_video (default False) - Do not block media replies containing video.
 #   whitelist_verified (default True) - Do not block verified accounts.
 #   whitelist_following (default True) - Do not block accounts you follow.
 #   whitelist_follow_request_sent (default True) - Do not block accounts you have sent follow requests to.

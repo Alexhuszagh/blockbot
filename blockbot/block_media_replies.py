@@ -72,7 +72,7 @@ def replies(api, tweet, previous_id=None):
         return
 
     LOGGER.info(f'Finding replies to Tweet id {tweet.id}.')
-    query = f'to:{tweet.user.screen_name} since_id:{tweet.id}'
+    query = f'to:{tweet.user.screen_name} filter:media since_id:{tweet.id}'
     if previous_id is not None:
         query += f' max_id:{previous_id}'
     try:
