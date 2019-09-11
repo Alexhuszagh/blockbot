@@ -30,7 +30,8 @@ KEEP_FDS = [
     log.FILE_HANDLER.stream.fileno(),
     log.STREAM_HANDLER.stream.fileno(),
 ]
-
+# Error message for a connection error.
+CONNECTION_MESSAGE = 'Failed to send request: HTTPSConnectionPool'
 
 def close_wiredtiger_connections():
     '''Close all open connections to WiredTiger.'''
@@ -56,12 +57,11 @@ def as_daemon(method, *args, **kwds):
                 # Make sure we collect available resources to try to
                 # avoid memory leaks.
                 gc.collect()
-                if 'NewConnectionError' in exc.reason:
-                    # Sleep for a minute and re-try.
-                    LOGGER.warn('Connection error, sleeping and trying again.')
-                    time.sleep(60)
+                LOGGER.error(exc.reason)
+                if exc.reason.startswith(CONNECTION_MESSAGE):
+                    # Sleep for 10 minutes and re-try.
+                    time.sleep(600)
                 else:
-                    LOGGER.error(exc.reason)
                     raise
 
     close_wiredtiger_connections()
