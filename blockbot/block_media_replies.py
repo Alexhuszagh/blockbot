@@ -45,8 +45,10 @@ ACCOUNTS_SEEN = collections.wired_tiger_set(
     name='BlockMediaRepliesSeenReplyAccounts'
 )
 # Previously blocked account screen names of replier.
-ACCOUNTS_BLOCKED = collections.wired_tiger_set(
-    name='BlockMediaRepliesBlockedReplyAccounts'
+ACCOUNTS_BLOCKED = collections.wired_tiger_dict(
+    name='BlockMediaRepliesBlockedReplyAccounts',
+    key_format='S',         # screen name
+    value_format='S',       # offending Tweet
 )
 
 
@@ -126,7 +128,7 @@ def should_block_media(reply, **kwds):
     return False
 
 
-def block_account(api, me, user, whiteset, **kwds):
+def block_account(api, me, reply, user, whiteset, **kwds):
     '''Block account if not white-listed.'''
 
     if user.screen_name in ACCOUNTS_SEEN:
@@ -138,7 +140,7 @@ def block_account(api, me, user, whiteset, **kwds):
 
         # Memoize blocked account.
         LOGGER.info(f'Blocked user={user.screen_name}')
-        ACCOUNTS_BLOCKED.add(user.screen_name)
+        ACCOUNTS_BLOCKED[user.screen_name] = reply.id_str
 
     # Memoize seen account.
     ACCOUNTS_SEEN.add(user.screen_name)
@@ -160,5 +162,5 @@ def block_media_replies(screen_name, whitelist=None, **kwds):
     for tweet in tweets(tweepy_api, screen_name):
         for reply in replies(tweepy_api, tweet, previous_tweet_id):
             if should_block_media(reply, **kwds):
-                block_account(tweepy_api, me, reply.user, whiteset, **kwds)
+                block_account(tweepy_api, me, reply, reply.user, whiteset, **kwds)
         previous_tweet_id = tweet.id

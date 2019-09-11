@@ -45,8 +45,10 @@ FOLLOWERS_SEEN = collections.wired_tiger_set(
     name='BlockFollowersSeenFollowers'
 )
 # Previously blocked account screen names.
-FOLLOWERS_BLOCKED = collections.wired_tiger_set(
-    name='BlockFollowersBlockedFollowers'
+FOLLOWERS_BLOCKED = collections.wired_tiger_dict(
+    name='BlockFollowersBlockedFollowers',
+    key_format='S',         # screen name
+    value_format='S',       # offending account followed
 )
 
 def followers(api, screen_name):
@@ -76,23 +78,23 @@ def followers(api, screen_name):
     ACCOUNTS_PROCESSED[screen_name] = 0
 
 
-def block_account(api, me, user, whiteset, **kwds):
+def block_follower(api, me, account, follower, whiteset, **kwds):
     '''Block account if not white-listed.'''
 
     # Allow repeated requests without incurring API limits.
-    if user.screen_name in FOLLOWERS_SEEN:
+    if follower.screen_name in FOLLOWERS_SEEN:
         return
 
-    if whitelist.should_block_user(api, me, user, whiteset, **kwds):
-        if not getattr(user, 'blocking', False):
-            api.create_block(screen_name=user.screen_name)
+    if whitelist.should_block_user(api, me, follower, whiteset, **kwds):
+        if not getattr(follower, 'blocking', False):
+            api.create_block(screen_name=follower.screen_name)
 
         # Memoize blocked account.
-        LOGGER.info(f'Blocked user={user.screen_name}')
-        FOLLOWERS_BLOCKED.add(user.screen_name)
+        LOGGER.info(f'Blocked follower={follower.screen_name}')
+        FOLLOWERS_BLOCKED[follower.screen_name] = account
 
     # Memoize seen account.
-    FOLLOWERS_SEEN.add(user.screen_name)
+    FOLLOWERS_SEEN.add(follower.screen_name)
 
 
 def block_followers(accounts, whitelist=None, **kwds):
@@ -109,4 +111,4 @@ def block_followers(accounts, whitelist=None, **kwds):
     whiteset = set(whitelist or [])
     for account in accounts:
         for follower in followers(tweepy_api, account):
-            block_account(tweepy_api, me, follower, whiteset, **kwds)
+            block_follower(tweepy_api, me, account, follower, whiteset, **kwds)

@@ -151,6 +151,13 @@ class WiredTigerDict(WiredTigerBase, collections.abc.MutableMapping):
     def __len__(self):
         raise NotImplementedError
 
+    def to_file(self, path: str, mode: str = 'w') -> None:
+        '''Write backing store to file.'''
+
+        with open(path, mode) as f:
+            for key, value in self:
+                print(f'{key},{value}', file=f)
+
 
 class WiredTigerSet(WiredTigerBase, collections.abc.MutableSet):
     '''File-backed store resembling a Python set. Lazily opened.'''
@@ -186,6 +193,13 @@ class WiredTigerSet(WiredTigerBase, collections.abc.MutableSet):
 
     def __len__(self):
         raise NotImplementedError
+
+    def to_file(self, path: str, mode: str = 'w') -> None:
+        '''Write backing store to file.'''
+
+        with open(path, mode) as f:
+            for key in self:
+                print(key, file=f)
 
 
 def wired_tiger_dict(
