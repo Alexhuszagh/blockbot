@@ -85,3 +85,13 @@ Lexical is licensed under the Apache 2.0 license. See the LICENSE for more infor
 # Contributing
 
 Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in lexical by you, as defined in the Apache-2.0 license, shall be licensed as above, without any additional terms or conditions.
+
+**Warning**
+
+Make sure not to accidentally expose your Twitter credentials on pull requests. To avoid accidentally exposing credentials, run the following command after cloning the repository:
+
+```bash
+git update-index --assume-unchanged config/api.json
+```
+
+All commits with Twitter credentials anywhere in the git history will be automatically rejected, for account safety reasons.
