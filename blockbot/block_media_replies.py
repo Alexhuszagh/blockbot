@@ -26,6 +26,7 @@
         blockbot.block_media_replies(account_screen_name, whitelist_screen_names)
 '''
 
+import os
 import tweepy
 
 from . import api
@@ -60,7 +61,7 @@ REPLIERS_SEEN = collections.wired_tiger_dict(
 REPLIERS_BLOCKED = collections.wired_tiger_dict(
     name='BlockMediaRepliesBlockedRepliers',
     key_format='r',
-    value_format='SbbbbQQQQQSSSSSSSrrSbbbQQSSSSSS',
+    value_format='SbbbbQQQQQSSSSSSSrrSbbbQQSSSSSSSS',
     columns=(
         # Basic Replier Info
         'replier_id',
@@ -103,6 +104,8 @@ REPLIERS_BLOCKED = collections.wired_tiger_dict(
         'reply_withheld_scope',
         # Media Basic Info
         'media_type',
+        'media_content_type',       # CSV-delimited if multiple values
+        'media_url',                # CSV-delimited if multiple values
     )
 )
 
@@ -184,17 +187,17 @@ def media_has_video(media):
     return any(i['type'] == 'video' for i in media)
 
 
-def should_block_media(reply, **kwds):
-    '''Determine if we should block an account based on reply media.'''
+def should_block_media(tweet, **kwds):
+    '''Determine if we should block an account based on tweet media.'''
 
-    if not hasattr(reply, 'extended_entities'):
+    if not hasattr(tweet, 'extended_entities'):
         # No native media, cannot have any videos in replies.
         return False
-    if not 'media' in reply.extended_entities:
+    if not 'media' in tweet.extended_entities:
         # No media key in extended_entities, unexpected but be safe.
         return False
 
-    media = reply.extended_entities['media']
+    media = tweet.extended_entities['media']
     has_photo = media_has_photo(media)
     has_animated_gif = media_has_animated_gif(media)
     has_video = media_has_video(media)
@@ -206,6 +209,67 @@ def should_block_media(reply, **kwds):
     elif not kwds.get('whitelist_video', False) and has_video:
         return True
     return False
+
+
+def photo_mime_type(url):
+    '''Extract the photo MIME type.'''
+
+    suffix = os.path.splitext(url)[1]
+    if suffix == '.jpg' or suffix == '.jpeg':
+        return 'image/jpeg'
+    elif suffix == '.gif':
+        return 'image/gif'
+    elif suffix == '.png':
+        return 'image/png'
+    else:
+        raise ValueError('Unrecognized photo type.')
+
+
+def extract_photo_media_url(media):
+    '''Extract the media URL from a media extended entity type for a photo.'''
+
+    # Photos store the photo type in the media url.
+    urls = [i['media_url_https'] for i in media]
+    mime_types = [photo_mime_type(url) for url in urls]
+
+    return ','.join(mime_types), ','.join(urls)
+
+
+def is_valid_video_type(content_type):
+    '''Determine if the video format is a recognized format.'''
+    return content_type in (
+        'video/quicktime',
+        'video/mp4',
+    )
+
+
+def extract_video_media_url(media):
+    '''Extract the media URL from a media extended entity type for a video.'''
+
+    # Can be a video or animated gif
+    # Filter for actual video variants.
+    variants = media['video_info']['variants']
+    filtered = [i for i in variants if is_valid_video_type(i['content_type'])]
+    if not filtered:
+        raise ValueError(f'Could not get valid video variants, content-type is {variants[0]["content_type"]}.')
+
+    # Choose the highest-quality variant.
+    best = max(filtered, key=lambda x: x['bitrate'])
+    return (best['content_type'], best['url'])
+
+
+def extract_media_url(tweet):
+    '''Extract the media URL from a Tweet.'''
+
+    media = tweet.extended_entities['media']
+    if len(media) == 0:
+        raise ValueError('Got empty media list.')
+    if media[0]['type'] == 'photo':
+        # Can contain up to 4 photos.
+        return extract_photo_media_url(media)
+    elif len(media) > 1:
+        raise ValueError('Got more than 1 media type for a non-photo type.')
+    return extract_video_media_url(media[0])
 
 
 def block_account(tweepy_api, me, reply, tweet, user, whitelist_users, **kwds):
@@ -221,6 +285,7 @@ def block_account(tweepy_api, me, reply, tweet, user, whitelist_users, **kwds):
 
         # Memoize blocked account.
         LOGGER.info(f'Blocked replier={user.screen_name}')
+        media_content_type, media_url = extract_media_url(reply)
         media = reply.extended_entities['media'][0]
         REPLIERS_BLOCKED[user.id] = (
             # Basic Replier Info
@@ -263,6 +328,8 @@ def block_account(tweepy_api, me, reply, tweet, user, whitelist_users, **kwds):
             getattr(reply, 'withheld_scope', ''),
             # Media Basic Info
             media['type'],
+            media_content_type,
+            media_url,
         )
 
     # Memoize seen account.

@@ -61,6 +61,9 @@ def as_daemon(method, *args, **kwds):
                     time.sleep(600)
                 else:
                     raise
+            except Exception as error:
+                LOGGER.error(str(error))
+                raise
 
     close_wiredtiger_connections()
     daemon = daemonize.Daemonize(app=APP_NAME, pid=PID, action=main, keep_fds=KEEP_FDS)
