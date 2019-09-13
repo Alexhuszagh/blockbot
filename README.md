@@ -43,12 +43,12 @@ Twitter has a major harassment problem, leading to "dogpiles". Often, a problema
 ```python
 import blockbot
 
-# List of accounts to block followers from.
-accounts = ['twitter']
-# Optional list of accounts to whitelist: don't block the account
+# List of account screen names to block followers from.
+account_screen_names = ['twitter']
+# Optional list of account screen names to whitelist: don't block the account
 # if they follow or are followed by @jack.
-whitelist = ['jack']
-blockbot.block_followers(accounts, whitelist)
+whitelist_screen_names = ['jack']
+blockbot.block_followers(account_screen_names, whitelist_screen_names)
 
 # Valid keywords to customize blocking behavior:
 #   whitelist_verified (default True) - Do not block verified accounts.
@@ -65,11 +65,11 @@ Twitter prioritizes "native" media, which means media is an intrusive form of co
 import blockbot
 
 # Block all replies to Tweets from @twitter with media in the replies.
-screen_name = 'twitter'
-# Optional list of accounts to whitelist: don't block the account
+account_screen_name = 'twitter'
+# Optional list of account screen names to whitelist: don't block the account
 # if they follow or are followed by @jack.
-whitelist = ['jack']
-blockbot.block_media_reply(screen_name, whitelist)
+whitelist_screen_names = ['jack']
+blockbot.block_media_reply(account_screen_name, whitelist_screen_names)
 
 # Valid keywords to customize blocking behavior:
 #   whitelist_photo (default True) - Do not block media replies containing photos.
@@ -91,14 +91,18 @@ Please note that only one tasks, whether it is a daemon or a function call, shou
 import blockbot
 
 # Block all replies to Tweets from @twitter with media in the replies.
-screen_name = 'twitter'
+account_screen_name = 'twitter'
 # Optional list of accounts to whitelist: don't block the account
 # if they follow or are followed by @jack.
-whitelist = ['jack']
+whitelist_screen_names = ['jack']
 # Pass the function name as the first argument, and any arguments
 # to the function after. This will start the task as a daemon.
 # This will exit the current interpreter.
-blockbot.as_daemon(blockbot.block_media_reply, screen_name, whitelist)
+blockbot.as_daemon(
+    blockbot.block_media_reply, 
+    account_screen_name, 
+    whitelist_screen_names
+)
 ```
 
 # Thread Safety

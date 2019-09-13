@@ -28,17 +28,18 @@ def load_config():
 
     with open(os.path.join(config_dir(), 'block_media_replies.json')) as f:
         config = json.load(f)
-        if not config['screen_name']:
+        if not config['account_screen_name']:
             raise ValueError('Must provide screen name for account replied to.')
     return config
 
 
 def main():
     config = load_config()
+    account_page_state = PageState()
     blockbot.as_daemon(
         blockbot.block_media_replies,
-        screen_name=config['screen_name'],
-        whitelist=config['whitelist'],
+        account_screen_name=config['account_screen_name'],
+        whitelist_screen_names=config['whitelist_screen_names'],
         **config['keywords'],
     )
 

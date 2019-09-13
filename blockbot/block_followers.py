@@ -21,9 +21,9 @@
 
         import blockbot
 
-        accounts = ['twitter']
-        whitelist = ['jack']
-        blockbot.block_followers(accounts, whitelist)
+        account_screen_names = ['twitter']
+        whitelist_screen_names = ['jack']
+        blockbot.block_followers(account_screen_names, whitelist_screen_names)
 '''
 
 import tweepy
@@ -35,80 +35,167 @@ from . import whitelist
 
 # Logger for BlockFollowers.
 LOGGER = log.new_logger('BlockFollowers')
-# Previously processed account screen names.
+# Previously processed accounts.
 ACCOUNTS_PROCESSED = collections.wired_tiger_dict(
     name='BlockFollowersProcessedAccounts',
-    value_format='r'    # cursor
+    key_format='r',
+    value_format='Sr',
+    columns=('user_id', 'screen_name', 'cursor')
 )
 # Previously seen account screen names.
-FOLLOWERS_SEEN = collections.wired_tiger_set(
-    name='BlockFollowersSeenFollowers'
+FOLLOWERS_SEEN = collections.wired_tiger_dict(
+    name='BlockFollowersSeenFollowers',
+    key_format='r',
+    value_format='S',
+    columns=('user_id', 'screen_name')
 )
 # Previously blocked account screen names.
 FOLLOWERS_BLOCKED = collections.wired_tiger_dict(
     name='BlockFollowersBlockedFollowers',
-    key_format='S',         # screen name
-    value_format='S',       # offending account followed
+    key_format='r',
+    value_format='SbbbbQQQQQSSSSSSSrS',
+    columns=(
+        # Basic Follower Info
+        'follower_id',
+        'follower_screen_name',
+        # Booleans.
+        'follower_default_profile',
+        'follower_default_profile_image',
+        'follower_protected',
+        'follower_verified',
+        # Numbers.
+        'follower_favourites_count',
+        'follower_followers_count',
+        'follower_friends_count',
+        'follower_listed_count',
+        'follower_statuses_count',
+        # Strings
+        'follower_created_at',
+        'follower_description',
+        'follower_location',
+        'follower_name',
+        'follower_url',
+        'follower_withheld_in_countries',
+        'follower_withheld_scope',
+        # Basic Account Info
+        'account_id',
+        'account_screen_name',
+    )
 )
 
-def followers(api, screen_name):
-    '''Get user objects for all followers of an account.'''
+def followers(tweepy_api, account):
+    '''Get user objects for all followers of account.'''
 
-    # Get the current cursor.
-    # Can be an integer or None.
-    cursor = ACCOUNTS_PROCESSED.get(screen_name)
-    if cursor == 0:
+    # Get the current cursor for the account.
+    cursor_state = api.CursorState()
+    if account.id in ACCOUNTS_PROCESSED:
+        cursor_state.next_cursor = ACCOUNTS_PROCESSED[account.id][1]
+    if cursor_state.next_cursor == api.END_CURSOR:
         # Previously finished the account, don't make any API requests.
         return
 
-    LOGGER.info(f'Getting followers for {screen_name}.')
     try:
-        curr = tweepy.Cursor(
-            api.followers,
-            screen_name=screen_name,
-            cursor=cursor
-        )
-        for page in curr.pages():
-            yield from page
-            ACCOUNTS_PROCESSED[screen_name] = curr.iterator.next_cursor
+        for follower in api.followers(
+            tweepy_api,
+            user_id=account.id,
+            cursor_state=cursor_state,
+            logger=LOGGER,
+        ):
+            yield follower
     except tweepy.TweepError:
-        LOGGER.warn(f'Unable to get followers for account {screen_name}')
+        # Store the cursor state on an error and re-raise.
+        ACCOUNTS_PROCESSED[account.id] = (account.screen_name, cursor_state.next_cursor)
+        raise
 
     # Store that all followers have been processed for account.
-    ACCOUNTS_PROCESSED[screen_name] = 0
+    ACCOUNTS_PROCESSED[account.id] = (account.screen_name, api.END_CURSOR)
 
 
-def block_follower(api, me, account, follower, whiteset, **kwds):
+def block_follower(tweepy_api, me, account, follower, whitelist_users, **kwds):
     '''Block account if not white-listed.'''
 
     # Allow repeated requests without incurring API limits.
-    if follower.screen_name in FOLLOWERS_SEEN:
+    if follower.id in FOLLOWERS_SEEN:
         return
 
-    if whitelist.should_block_user(api, me, follower, whiteset, **kwds):
+    if whitelist.should_block_user(tweepy_api, me, follower, whitelist_users, **kwds):
         if not getattr(follower, 'blocking', False):
-            api.create_block(screen_name=follower.screen_name)
+            tweepy_api.create_block(user_id=follower.id)
 
         # Memoize blocked account.
         LOGGER.info(f'Blocked follower={follower.screen_name}')
-        FOLLOWERS_BLOCKED[follower.screen_name] = account
+        FOLLOWERS_BLOCKED[follower.id] = (
+            # Basic Follower Info
+            follower.screen_name,
+            # Booleans
+            follower.default_profile,
+            follower.default_profile_image,
+            follower.protected,
+            follower.verified,
+            # Numbers
+            follower.favourites_count,
+            follower.followers_count,
+            follower.friends_count,
+            follower.listed_count,
+            follower.statuses_count,
+            # Strings
+            str(follower.created_at),
+            follower.description or '',
+            follower.location or '',
+            follower.name,
+            follower.url or '',
+            ','.join(getattr(follower, 'withheld_in_countries', [])),
+            getattr(follower, 'withheld_scope', ''),
+            # Basic Account Info
+            account.id,
+            account.screen_name,
+        )
 
     # Memoize seen account.
-    FOLLOWERS_SEEN.add(follower.screen_name)
+    FOLLOWERS_SEEN[follower.id] = follower.screen_name
 
 
-def block_followers(accounts, whitelist=None, **kwds):
+def block_followers(
+    account_screen_names,
+    whitelist_screen_names=None,
+    account_page_state=None,
+    **kwds
+):
     '''
     Block all followers of a given account, except whitelisted accounts.
 
-    :param accounts: Iterable of screen names to block followers of those accounts.
-    :param whitelist: (Optional) Optional iterable of screen names to whitelist.
-    :param **kwds: Optional keyword-arguments to override account whitelisting.
+    :param account_screen_names:
+        Iterable of screen names to block followers of those accounts.
+    :param whitelist_screen_names:
+        (Optional) Optional iterable of screen names to whitelist.
+    :param account_page_state:
+        (Optional) Optional current page state of the account screen names.
+    :param **kwds:
+        Optional keyword-arguments to override account whitelisting.
+
+    .. code-block:: python
+
+        account_screen_names = ['twitter']
+        whitelist_screen_names = ['jack']
+        block_followers(account_screen_names, whitelist_screen_names)
     '''
 
     tweepy_api = api.generate_api()
     me = tweepy_api.me()
-    whiteset = set(whitelist or [])
+    accounts = api.lookup_users(
+        tweepy_api,
+        screen_names=account_screen_names,
+        page_state=account_page_state,
+        logger=LOGGER,
+    )
+    whitelist = []
+    if whitelist_screen_names is not None:
+        whitelist = list(api.lookup_users(
+            tweepy_api,
+            screen_names=whitelist_screen_names,
+            logger=LOGGER,
+        ))
+
     for account in accounts:
         for follower in followers(tweepy_api, account):
-            block_follower(tweepy_api, me, account, follower, whiteset, **kwds)
+            block_follower(tweepy_api, me, account, follower, whitelist, **kwds)

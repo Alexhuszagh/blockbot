@@ -21,9 +21,9 @@
 
         import blockbot
 
-        screen_name = 'twitter'
-        whitelist = ['jack']
-        blockbot.block_media_replies(screen_name, whitelist)
+        account_screen_name = 'twitter'
+        whitelist_screen_names = ['jack']
+        blockbot.block_media_replies(account_screen_name, whitelist_screen_names)
 '''
 
 import tweepy
@@ -35,61 +35,138 @@ from . import whitelist
 
 # Logger for BlockMediaReply.
 LOGGER = log.new_logger('BlockMediaReplies')
-# Previously processed Tweets we don't want to re-process.
+# Previously processed tweets from account.
 TWEETS_PROCESSED = collections.wired_tiger_dict(
     name='BlockMediaRepliesProcessedTweets',
-    value_format='r'    # max_id
+    key_format='r',
+    value_format='Sr',
+    columns=('user_id', 'screen_name', 'max_id')
+)
+# Previously processed replies we don't want to re-process.
+REPLIES_PROCESSED = collections.wired_tiger_dict(
+    name='BlockMediaRepliesProcessedReplies',
+    key_format='r',     # Original Tweet ID
+    value_format='r',   # Max ID for the replies.
+    columns=('tweet_id', 'max_id')
 )
 # Previously seen account screen names of repliers.
-ACCOUNTS_SEEN = collections.wired_tiger_set(
-    name='BlockMediaRepliesSeenReplyAccounts'
+REPLIERS_SEEN = collections.wired_tiger_dict(
+    name='BlockFollowersSeenRepliers',
+    key_format='r',
+    value_format='S',
+    columns=('user_id', 'screen_name')
 )
 # Previously blocked account screen names of replier.
-ACCOUNTS_BLOCKED = collections.wired_tiger_dict(
-    name='BlockMediaRepliesBlockedReplyAccounts',
-    key_format='S',         # screen name
-    value_format='S',       # offending Tweet
+REPLIERS_BLOCKED = collections.wired_tiger_dict(
+    name='BlockMediaRepliesBlockedRepliers',
+    key_format='r',
+    value_format='SbbbbQQQQQSSSSSSSrrSbbbQQSSSSSS',
+    columns=(
+        # Basic Replier Info
+        'replier_id',
+        'replier_screen_name',
+        # Replier Booleans.
+        'replier_default_profile',
+        'replier_default_profile_image',
+        'replier_protected',
+        'replier_verified',
+        # Replier Numbers.
+        'replier_favourites_count',
+        'replier_repliers_count',
+        'replier_friends_count',
+        'replier_listed_count',
+        'replier_statuses_count',
+        # Replier Strings
+        'replier_created_at',
+        'replier_description',
+        'replier_location',
+        'replier_name',
+        'replier_url',
+        'replier_withheld_in_countries',
+        'replier_withheld_scope',
+        # Basic Tweet Info
+        'tweet_id',
+        'tweet_author_id',
+        'tweet_author_screen_name',
+        # Reply Booleans
+        'reply_is_quote_status',
+        'reply_possibly_sensitive',
+        'reply_withheld_copyright',
+        # Reply Numbers
+        'reply_retweet_count',
+        'reply_favorite_count',
+        # Reply Strings
+        'reply_created_at',
+        'reply_lang',
+        'reply_source',
+        'reply_withheld_in_countries',
+        'reply_withheld_scope',
+        # Media Basic Info
+        'media_type',
+    )
 )
 
 
-def tweets(api, screen_name):
-    '''Get full Tweet objects for'''
+def tweets(tweepy_api, account):
+    '''Get full Tweet objects for user timeline of account.'''
 
-    LOGGER.info(f'Getting tweets for {screen_name}.')
-    try:
-        for status in tweepy.Cursor(api.user_timeline, screen_name=screen_name).items():
-            yield status
-    except tweepy.TweepError:
-        LOGGER.warn(f'Unable to get tweets for account {screen_name}')
-
-
-def replies(api, tweet, previous_id=None):
-    '''Find replies to Tweet.'''
-
-    max_id = TWEETS_PROCESSED.get(tweet.id_str)
-    if max_id == 0:
-        # Previously finished the tweet, don't make any API requests.
+    # Get the current max_id for the tweets from account.
+    id_state = api.IdState()
+    if account.id in TWEETS_PROCESSED:
+        id_state.max_id = TWEETS_PROCESSED[account.id][1]
+    if id_state.max_id == api.END_MAX_ID:
+        # Previously finished all Tweets from account, don't make any API requests.
         return
 
+    try:
+        for tweet in api.user_timeline(
+            tweepy_api,
+            screen_name=account.screen_name,
+            id_state=id_state,
+            logger=LOGGER,
+        ):
+            yield tweet
+    except tweepy.TweepError:
+        # Store the id state on an error and re-raise.
+        TWEETS_PROCESSED[account.id] = (account.screen_name, id_state.max_id)
+        raise
+
+    # Store that all Tweets have been processed for account.
+    TWEETS_PROCESSED[account.id] = (account.screen_name, api.END_MAX_ID)
+
+
+def replies(tweepy_api, tweet, previous_id=None):
+    '''Find replies to Tweet.'''
+
+    id_state = api.IdState()
+    if tweet.id in REPLIES_PROCESSED:
+        id_state.max_id = REPLIES_PROCESSED[tweet.id]
+    if id_state.max_id == api.END_MAX_ID:
+        # Previously finished all replies to the tweet, don't make any API requests.
+        return
+
+    # Build our query and fetch Tweets.
     LOGGER.info(f'Finding replies to Tweet id {tweet.id}.')
     query = f'to:{tweet.user.screen_name} filter:media since_id:{tweet.id}'
     if previous_id is not None:
         query += f' max_id:{previous_id}'
     try:
-        curr = tweepy.Cursor(
-            api.search,
-            q=query,
+        for reply in api.search(
+            tweepy_api,
+            query,
             count=100,
-            max_id=max_id
-        )
-        for page in curr.pages():
-            yield from page
-            TWEETS_PROCESSED[tweet.id_str] = curr.iterator.max_id
+            result_type='recent',
+            id_state=id_state,
+            logger=LOGGER,
+        ):
+            yield reply
     except tweepy.TweepError:
-        LOGGER.warn(f'Unable to get replies to Tweet {tweet.id}')
+        # Store the id state on an error and re-raise.
+        REPLIES_PROCESSED[tweet.id] = id_state.max_id
+        raise
 
     # Store that all replies have been processed for Tweet.
-    TWEETS_PROCESSED[tweet.id_str] = 0
+    REPLIES_PROCESSED[tweet.id] = api.END_MAX_ID
 
 
 def media_has_photo(media):
@@ -113,6 +190,9 @@ def should_block_media(reply, **kwds):
     if not hasattr(reply, 'extended_entities'):
         # No native media, cannot have any videos in replies.
         return False
+    if not 'media' in reply.extended_entities:
+        # No media key in extended_entities, unexpected but be safe.
+        return False
 
     media = reply.extended_entities['media']
     has_photo = media_has_photo(media)
@@ -128,39 +208,103 @@ def should_block_media(reply, **kwds):
     return False
 
 
-def block_account(api, me, reply, user, whiteset, **kwds):
+def block_account(tweepy_api, me, reply, tweet, user, whitelist_users, **kwds):
     '''Block account if not white-listed.'''
 
-    if user.screen_name in ACCOUNTS_SEEN:
+    # Allow repeated requests without incurring API limits.
+    if user.id in REPLIERS_SEEN:
         return
 
-    if whitelist.should_block_user(api, me, user, whiteset, **kwds):
+    if whitelist.should_block_user(tweepy_api, me, user, whitelist_users, **kwds):
         if not getattr(user, 'blocking', False):
-            api.create_block(screen_name=user.screen_name)
+            tweepy_api.create_block(user_id=user.id)
 
         # Memoize blocked account.
-        LOGGER.info(f'Blocked user={user.screen_name}')
-        ACCOUNTS_BLOCKED[user.screen_name] = reply.id_str
+        LOGGER.info(f'Blocked replier={user.screen_name}')
+        media = reply.extended_entities['media'][0]
+        REPLIERS_BLOCKED[user.id] = (
+            # Basic Replier Info
+            user.screen_name,
+            # Booleans
+            user.default_profile,
+            user.default_profile_image,
+            user.protected,
+            user.verified,
+            # Numbers
+            user.favourites_count,
+            user.followers_count,
+            user.friends_count,
+            user.listed_count,
+            user.statuses_count,
+            # Strings
+            str(user.created_at),
+            user.description or '',
+            user.location or '',
+            user.name,
+            user.url or '',
+            ','.join(getattr(user, 'withheld_in_countries', [])),
+            getattr(user, 'withheld_scope', ''),
+            # Basic Tweet Info
+            tweet.id,
+            tweet.user.id,
+            tweet.user.screen_name,
+            # Reply Booleans
+            reply.is_quote_status,
+            getattr(reply, 'possibly_sensitive', False),
+            getattr(reply, 'withheld_copyright', False),
+            # Reply Numbers
+            getattr(reply, 'retweet_count', 0),
+            getattr(reply, 'favorite_count', 0),
+            # Reply Strings
+            str(reply.created_at),
+            getattr(reply, 'lang', ''),
+            reply.source,
+            ','.join(getattr(reply, 'withheld_in_countries', [])),
+            getattr(reply, 'withheld_scope', ''),
+            # Media Basic Info
+            media['type'],
+        )
 
     # Memoize seen account.
-    ACCOUNTS_SEEN.add(user.screen_name)
+    REPLIERS_SEEN[user.id] = user.screen_name
 
 
-def block_media_replies(screen_name, whitelist=None, **kwds):
+def block_media_replies(
+    account_screen_name,
+    whitelist_screen_names=None,
+    **kwds
+):
     '''
     Block all users who reply to an account with media in their reply.
 
-    :param screen_name: Screen name of account to find replies to.
-    :param whitelist: (Optional) Optional iterable of screen names to whitelist.
-    :param **kwds: Optional keyword-arguments to override account whitelisting.
+    :param account_screen_names:
+        Screen name of account to find replies to.
+    :param whitelist_screen_names:
+        (Optional) Optional iterable of screen names to whitelist.
+    :param **kwds:
+        Optional keyword-arguments to override account whitelisting.
+
+    .. code-block:: python
+
+        account_screen_name = 'twitter'
+        whitelist_screen_names = ['jack']
+        block_media_replies(account_screen_name, whitelist_screen_names)
     '''
 
     tweepy_api = api.generate_api()
     me = tweepy_api.me()
-    whiteset = set(whitelist or [])
+    account = tweepy_api.get_user(screen_name=account_screen_name)
+    whitelist = []
+    if whitelist_screen_names is not None:
+        whitelist = list(api.lookup_users(
+            tweepy_api,
+            screen_names=whitelist_screen_names,
+            logger=LOGGER,
+        ))
+
     previous_tweet_id = None
-    for tweet in tweets(tweepy_api, screen_name):
+    for tweet in tweets(tweepy_api, account):
         for reply in replies(tweepy_api, tweet, previous_tweet_id):
             if should_block_media(reply, **kwds):
-                block_account(tweepy_api, me, reply, reply.user, whiteset, **kwds)
+                block_account(tweepy_api, me, reply, tweet, reply.user, whitelist, **kwds)
         previous_tweet_id = tweet.id

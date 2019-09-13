@@ -16,6 +16,7 @@ import tempfile
 import time
 import tweepy
 
+from . import api
 from . import collections
 from . import log
 
@@ -28,10 +29,7 @@ APP_NAME = 'blockbot_daemon'
 # File descriptions for files we need to keep open (logger).
 KEEP_FDS = [
     log.FILE_HANDLER.stream.fileno(),
-    log.STREAM_HANDLER.stream.fileno(),
 ]
-# Error message for a connection error.
-CONNECTION_MESSAGE = 'Failed to send request: HTTPSConnectionPool'
 
 def close_wiredtiger_connections():
     '''Close all open connections to WiredTiger.'''
@@ -53,12 +51,12 @@ def as_daemon(method, *args, **kwds):
                 # just exit.
                 method(*args, **kwds)
                 break
-            except tweepy.TweepError as exc:
+            except tweepy.TweepError as error:
                 # Make sure we collect available resources to try to
                 # avoid memory leaks.
                 gc.collect()
-                LOGGER.error(exc.reason)
-                if exc.reason.startswith(CONNECTION_MESSAGE):
+                LOGGER.error(error.reason)
+                if api.is_connection_error(error):
                     # Sleep for 10 minutes and re-try.
                     time.sleep(600)
                 else:

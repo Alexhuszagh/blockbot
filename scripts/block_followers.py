@@ -19,6 +19,7 @@ except ImportError:
     sys.path.insert(0, project_home)
     import blockbot
 
+from blockbot.api import PageState
 from blockbot.path import config_dir
 
 
@@ -27,17 +28,19 @@ def load_config():
 
     with open(os.path.join(config_dir(), 'block_followers.json')) as f:
         config = json.load(f)
-        if not config['accounts']:
+        if not config['account_screen_names']:
             raise ValueError('Must provide at least one account to block followers from.')
     return config
 
 
 def main():
     config = load_config()
+    account_page_state = PageState()
     blockbot.as_daemon(
         blockbot.block_followers,
-        accounts=config['accounts'],
-        whitelist=config['whitelist'],
+        account_screen_names=config['account_screen_names'],
+        whitelist_screen_names=config['whitelist_screen_names'],
+        account_page_state=account_page_state,
         **config['keywords'],
     )
 
