@@ -35,7 +35,6 @@ def load_config():
 
 def main():
     config = load_config()
-    account_page_state = PageState()
     blockbot.as_daemon(
         blockbot.block_media_replies,
         account_screen_name=config['account_screen_name'],
