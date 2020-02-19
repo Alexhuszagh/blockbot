@@ -36,6 +36,7 @@ from . import whitelist
 
 # Logger for BlockMediaReply.
 LOGGER = log.new_logger('BlockMediaReplies')
+log.override_tweepy_logger(tweepy)
 # Previously processed tweets from account.
 TWEETS_PROCESSED = collections.wired_tiger_dict(
     name='BlockMediaRepliesProcessedTweets',

@@ -27,6 +27,18 @@ def new_logger(name):
 
     return logger
 
+def override_tweepy_logger(tweepy):
+    '''Override the Tweepy logger with the Tweepy module and a logger object.'''
+
+    # This isn't documented, and likely not stable, but it works.
+    # And we kind of need this information. It hasn't changed since
+    # Nov. 15, 2014, so we should be safe.
+    logger = tweepy.binder.log
+
+    # Add the handlers to logger
+    logger.addHandler(STREAM_HANDLER)
+    logger.addHandler(FILE_HANDLER)
+
 
 os.makedirs(path.log_dir(), exist_ok=True)
 CURRENT_LOG_NAME = log_name()
