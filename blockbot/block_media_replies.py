@@ -129,6 +129,7 @@ def tweets(tweepy_api, account):
             id_state=id_state,
             logger=LOGGER,
         ):
+            LOGGER.info(f'Processing Tweet ID {tweet.id} from screen name {account.screen_name}.')
             yield tweet
     except tweepy.TweepError:
         # Store the id state on an error and re-raise.
@@ -155,6 +156,7 @@ def replies(tweepy_api, tweet, previous_id=None):
     if previous_id is not None:
         query += f' max_id:{previous_id}'
     try:
+        count = 0
         for reply in api.search(
             tweepy_api,
             query,
@@ -163,6 +165,9 @@ def replies(tweepy_api, tweet, previous_id=None):
             id_state=id_state,
             logger=LOGGER,
         ):
+            count += 1
+            if count % 50 == 0 and count > 0:
+                LOGGER.info(f'Processed {count} replies.')
             yield reply
     except tweepy.TweepError:
         # Store the id state on an error and re-raise.

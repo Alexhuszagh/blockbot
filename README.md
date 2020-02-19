@@ -64,7 +64,8 @@ For example, use `block_media_replies`, you would edit `block_media_replies.json
         "whitelist_verified": true,
         "whitelist_following": true,
         "whitelist_follow_request_sent": true,
-        "whitelist_friendship": true
+        "whitelist_friendship": true,
+        "sleep_time": 600
     }
 }
 ```
@@ -87,6 +88,9 @@ account_screen_names = ['twitter']
 whitelist_screen_names = ['jack']
 blockbot.block_followers(account_screen_names, whitelist_screen_names)
 
+# Valid keywords to customize connection behavior:
+#   sleep_time (default 600) - Seconds to sleep on a non-fatal connection error.
+
 # Valid keywords to customize blocking behavior:
 #   whitelist_verified (default True) - Do not block verified accounts.
 #   whitelist_following (default True) - Do not block accounts you follow.
@@ -107,6 +111,9 @@ account_screen_name = 'twitter'
 # if they follow or are followed by @jack.
 whitelist_screen_names = ['jack']
 blockbot.block_media_reply(account_screen_name, whitelist_screen_names)
+
+# Valid keywords to customize connection behavior:
+#   sleep_time (default 600) - Seconds to sleep on a non-fatal connection error.
 
 # Valid keywords to customize blocking behavior:
 #   whitelist_photo (default True) - Do not block media replies containing photos.

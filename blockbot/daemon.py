@@ -46,19 +46,21 @@ def close_wiredtiger_connections():
         connection.close()
 
 
-def handle_connection_error():
+def handle_connection_error(sleep_time):
     '''Garbage collect and sleep on connection errors.'''
 
     # Make sure we collect available resources to try to
     # avoid memory leaks.
     gc.collect()
     # Sleep for 10 minutes, then we can re-try.
-    LOGGER.info('Non-critical connection error occurred, sleeping for 10 minutes.')
-    time.sleep(600)
+    LOGGER.info(f'Non-critical connection error occurred, sleeping for {sleep_time} seconds.')
+    time.sleep(sleep_time)
 
 
 def as_daemon(method, name, *args, **kwds):
     '''Run long-standing process as daemon.'''
+
+    sleep_time = kwds.pop('sleep_time', 600)
 
     def main():
         '''Wrapper for the method. Handles connection loss and other errors.'''
@@ -72,12 +74,12 @@ def as_daemon(method, name, *args, **kwds):
             except tweepy.TweepError as error:
                 LOGGER.error(error.reason)
                 if api.is_connection_error(error):
-                    handle_connection_error()
+                    handle_connection_error(sleep_time)
                 else:
                     raise
             except requests.exceptions.RequestException as error:
                 LOGGER.error(str(error))
-                handle_connection_error()
+                handle_connection_error(sleep_time)
             except Exception as error:
                 LOGGER.critical(str(error))
                 raise
