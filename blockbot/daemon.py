@@ -9,6 +9,7 @@
     Do not have multiple daemons running at the same time.
 '''
 
+import contextlib
 import daemonize
 import gc
 import os
@@ -90,6 +91,9 @@ def close_daemon(name):
     '''Close the long-running daemon from the PID.'''
 
     pid_file = get_pid(name)
-    with open(pid_file) as f:
-        pid = int(f.read())
-    os.kill(pid, signal.SIGTERM)
+    with contextlib.suppress(IOError):
+        # If the PID file doesn't exist, this will throw an error, because
+        # the script currently isn't running. Should suppress that error.
+        with open(pid_file) as f:
+            pid = int(f.read())
+        os.kill(pid, signal.SIGTERM)

@@ -71,6 +71,8 @@ For example, use `block_media_replies`, you would edit `block_media_replies.json
 
 Finally, run `block_media_replies.py` (if it's not in the path, it should be installed in `~/.local/bin/block_media_replies.py`). Now, the script will run in the background blocking the most recent media replies to the account in question.
 
+To kill the script, run `kill_block_media_replies.py`.
+
 ## Block Followers of An Account
 
 Twitter has a major harassment problem, leading to "dogpiles". Often, a problematic user quotes a Tweet of yours, leading to large groups of their followers harassment you. blockbot allows you to block all followers of an account, to help stem the tide of harassment:
