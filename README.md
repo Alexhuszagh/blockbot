@@ -36,6 +36,41 @@ python setup.py install --user
 
 blockbot requires API access, and does this through Tweepy. In order to access Tweepy, you must update [config/api.json](config/api.json) with your credentials acquired from [Twitter Developer](https://developer.twitter.com/).
 
+## High-Level Access
+
+First, edit the configuration files in `~/.blockbot/config/`. You will need to edit `api.json` and the config for the script you wish to use.
+
+A dummy example of API JSON with realistic but fake data is:
+
+```json
+{
+    "consumer_key": "AIbwRVbCJMkaiQVlfJbKG5gAy",
+    "consumer_secret": "P0wiBhrdNlCTb2okvzxRGNKD4opnyOtFGM7Q6Hvmig0IzjMYw5",
+    "access_token": "Q9D4wOv9zA-q3rlIxbZgknaZKaPwGBPtiT4AcQLWZ5Q9lduhX7",
+    "access_token_secret": "lXyoz2kDkSz01riCAkbOlE4iOmSkBlHXVij"
+}
+```
+
+For example, use `block_media_replies`, you would edit `block_media_replies.json` to have the desired data. An example would be:
+
+```json
+{
+    "account_screen_name": "twitter",
+    "whitelist_screen_names": ["jack"],
+    "keywords": {
+        "whitelist_photo": true,
+        "whitelist_animated_gif": false,
+        "whitelist_video": false,
+        "whitelist_verified": true,
+        "whitelist_following": true,
+        "whitelist_follow_request_sent": true,
+        "whitelist_friendship": true
+    }
+}
+```
+
+Finally, run `block_media_replies.py` (if it's not in the path, it should be installed in `~/.local/bin/block_media_replies.py`). Now, the script will run in the background blocking the most recent media replies to the account in question.
+
 ## Block Followers of An Account
 
 Twitter has a major harassment problem, leading to "dogpiles". Often, a problematic user quotes a Tweet of yours, leading to large groups of their followers harassment you. blockbot allows you to block all followers of an account, to help stem the tide of harassment:

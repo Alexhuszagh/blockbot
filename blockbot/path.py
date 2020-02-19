@@ -6,8 +6,6 @@
 '''
 
 import os
-import json
-import tweepy
 
 
 def project_dir():

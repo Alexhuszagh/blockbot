@@ -61,11 +61,12 @@ REPLIERS_SEEN = collections.wired_tiger_dict(
 REPLIERS_BLOCKED = collections.wired_tiger_dict(
     name='BlockMediaRepliesBlockedRepliers',
     key_format='r',
-    value_format='SbbbbQQQQQSSSSSSSrrSbbbQQSSSSSSSS',
+    value_format='SrbbbbQQQQQSSSSSSSrrSbbbQQSSSSSSSS',
     columns=(
         # Basic Replier Info
         'replier_id',
         'replier_screen_name',
+        'reply_id',
         # Replier Booleans.
         'replier_default_profile',
         'replier_default_profile_image',
@@ -288,8 +289,9 @@ def block_account(tweepy_api, me, reply, tweet, user, whitelist_users, **kwds):
         media_content_type, media_url = extract_media_url(reply)
         media = reply.extended_entities['media'][0]
         REPLIERS_BLOCKED[user.id] = (
-            # Basic Replier Info
+            # Basic Reply Info
             user.screen_name,
+            reply.id,
             # Booleans
             user.default_profile,
             user.default_profile_image,
