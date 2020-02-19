@@ -95,12 +95,16 @@ def followers(tweepy_api, account):
         return
 
     try:
+        count = 0
         for follower in api.followers(
             tweepy_api,
             user_id=account.id,
             cursor_state=cursor_state,
             logger=LOGGER,
         ):
+            count += 1
+            if count % 50 == 0 and count > 0:
+                LOGGER.info(f'Processed {count} followers.')
             yield follower
     except tweepy.TweepError:
         # Store the cursor state on an error and re-raise.
@@ -180,7 +184,8 @@ def block_followers(
         block_followers(account_screen_names, whitelist_screen_names)
     '''
 
-    tweepy_api = api.generate_api()
+    timeout = kwds.pop('timeout', api.DEFAULT_TIMEOUT)
+    tweepy_api = api.generate_api(timeout)
     me = tweepy_api.me()
     accounts = api.lookup_users(
         tweepy_api,

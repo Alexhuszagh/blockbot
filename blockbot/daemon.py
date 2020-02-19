@@ -31,6 +31,8 @@ APP_NAME = 'blockbot_daemon'
 KEEP_FDS = [
     log.FILE_HANDLER.stream.fileno(),
 ]
+# Default sleep time on handling a connection error.
+DEFAULT_SLEEP_TIME = 600
 
 def get_pid(name):
     '''Get the process ID file for the daemon.'''
@@ -60,7 +62,7 @@ def handle_connection_error(sleep_time):
 def as_daemon(method, name, *args, **kwds):
     '''Run long-standing process as daemon.'''
 
-    sleep_time = kwds.pop('sleep_time', 600)
+    sleep_time = kwds.pop('sleep_time', DEFAULT_SLEEP_TIME)
 
     def main():
         '''Wrapper for the method. Handles connection loss and other errors.'''

@@ -65,6 +65,7 @@ For example, use `block_media_replies`, you would edit `block_media_replies.json
         "whitelist_following": true,
         "whitelist_follow_request_sent": true,
         "whitelist_friendship": true,
+        "timeout": 5,
         "sleep_time": 600
     }
 }
@@ -89,6 +90,7 @@ whitelist_screen_names = ['jack']
 blockbot.block_followers(account_screen_names, whitelist_screen_names)
 
 # Valid keywords to customize connection behavior:
+#   timeout (default 5) - Seconds to timeout when making request.
 #   sleep_time (default 600) - Seconds to sleep on a non-fatal connection error.
 
 # Valid keywords to customize blocking behavior:
@@ -113,6 +115,7 @@ whitelist_screen_names = ['jack']
 blockbot.block_media_reply(account_screen_name, whitelist_screen_names)
 
 # Valid keywords to customize connection behavior:
+#   timeout (default 5) - Seconds to timeout when making request.
 #   sleep_time (default 600) - Seconds to sleep on a non-fatal connection error.
 
 # Valid keywords to customize blocking behavior:

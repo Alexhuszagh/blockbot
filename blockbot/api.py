@@ -27,6 +27,9 @@ END_CURSOR = 0
 
 START_PAGE = 0
 
+# Default timeout is set to 5 seconds.
+DEFAULT_TIMEOUT = 5
+
 
 @dataclasses.dataclass
 class IdState:
@@ -66,7 +69,7 @@ def is_authorization_error(error):
 # API
 # ---
 
-def generate_api():
+def generate_api(timeout=DEFAULT_TIMEOUT):
     '''Generate the API from config.'''
 
     with open(os.path.join(path.config_dir(), 'api.json')) as f:
@@ -81,6 +84,7 @@ def generate_api():
 
     return tweepy.API(
         auth,
+        timeout=timeout,
         wait_on_rate_limit=True,
         wait_on_rate_limit_notify=True,
         compression=True

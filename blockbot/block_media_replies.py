@@ -365,7 +365,8 @@ def block_media_replies(
         block_media_replies(account_screen_name, whitelist_screen_names)
     '''
 
-    tweepy_api = api.generate_api()
+    timeout = kwds.pop('timeout', api.DEFAULT_TIMEOUT)
+    tweepy_api = api.generate_api(timeout)
     me = tweepy_api.me()
     account = tweepy_api.get_user(screen_name=account_screen_name)
     whitelist = []
