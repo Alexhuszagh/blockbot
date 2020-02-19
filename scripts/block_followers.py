@@ -38,6 +38,7 @@ def main():
     account_page_state = PageState()
     blockbot.as_daemon(
         blockbot.block_followers,
+        name='block_followers',
         account_screen_names=config['account_screen_names'],
         whitelist_screen_names=config['whitelist_screen_names'],
         account_page_state=account_page_state,

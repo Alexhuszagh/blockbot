@@ -37,6 +37,7 @@ def main():
     config = load_config()
     blockbot.as_daemon(
         blockbot.block_media_replies,
+        name='block_media_replies',
         account_screen_name=config['account_screen_name'],
         whitelist_screen_names=config['whitelist_screen_names'],
         **config['keywords'],
