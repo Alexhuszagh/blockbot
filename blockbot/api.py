@@ -269,16 +269,10 @@ def user_timeline(
 
 def search(
     api,
-    q,
-    geocode=None,
-    lang=None,
-    locale=None,
-    result_type=None,
-    count=None,
-    until=None,
-    include_entities=None,
-    id_state=None,
+    query,
     logger=None,
+    id_state=None,
+    **kwds
 ):
     '''
     Perform Twitter search.
@@ -317,15 +311,9 @@ def search(
 
     cursor = tweepy.Cursor(
         api.search,
-        q=q,
-        geocode=geocode,
-        lang=lang,
-        locale=locale,
-        result_type=result_type,
-        count=count,
-        until=until,
-        include_entities=include_entities,
+        q=query,
         max_id=max_id,
+        **kwds
     )
     # Cannot error except for a network error.
     for page in cursor.pages():
