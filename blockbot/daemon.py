@@ -25,6 +25,8 @@ from . import log
 
 # Logger for BlockFollowers.
 LOGGER = log.new_logger('Daemon')
+# Override Tweepy because we're not going to have a stdout visible.
+log.override_tweepy_logger(tweepy)
 # Unique name for application.
 APP_NAME = 'blockbot_daemon'
 # File descriptions for files we need to keep open (logger).

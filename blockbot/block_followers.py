@@ -35,7 +35,6 @@ from . import whitelist
 
 # Logger for BlockFollowers.
 LOGGER = log.new_logger('BlockFollowers')
-log.override_tweepy_logger(tweepy)
 # Previously processed accounts.
 ACCOUNTS_PROCESSED = collections.wired_tiger_dict(
     name='BlockFollowersProcessedAccounts',
