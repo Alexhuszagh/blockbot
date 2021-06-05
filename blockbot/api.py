@@ -67,7 +67,7 @@ def is_authorization_error(error):
 
 def is_user_not_found_error(error):
     '''Determine if the error is due to a user not being found.'''
-    return error.reason.startswith('User not found')
+    return error.api_code == 50
 
 
 # API
