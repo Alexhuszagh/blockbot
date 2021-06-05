@@ -120,11 +120,12 @@ def block_follower(tweepy_api, me, account, follower, whitelist_users, **kwds):
 
     # Allow repeated requests without incurring API limits.
     if follower.id in FOLLOWERS_SEEN:
+        LOGGER.info(f'Already blocked follower={follower.screen_name}')
         return
 
     if whitelist.should_block_user(tweepy_api, me, follower, whitelist_users, **kwds):
         if not getattr(follower, 'blocking', False):
-            tweepy_api.create_block(user_id=follower.id)
+            api.create_block(tweepy_api, follower.id)
 
         # Memoize blocked account.
         LOGGER.info(f'Blocked follower={follower.screen_name}')

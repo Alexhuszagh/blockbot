@@ -65,6 +65,10 @@ def is_authorization_error(error):
         'Twitter error response: status code = 401',
     ))
 
+def is_user_not_found_error(error):
+    '''Determine if the error is due to a user not being found.'''
+    return error.reason.startswith('User not found')
+
 
 # API
 # ---
@@ -322,3 +326,15 @@ def search(
         # Increment state after search results.
         if id_state is not None:
             id_state.max_id = cursor.iterator.max_id
+
+
+def create_block(api, user_id):
+    '''Try and create a block for a given user.'''
+
+    try:
+        api.create_block(user_id=user_id)
+    except tweepy.TweepError as error:
+        if is_user_not_found_error(error):
+            # Use deactivated their account while processing.
+            return
+        raise

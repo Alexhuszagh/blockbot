@@ -283,11 +283,12 @@ def block_account(tweepy_api, me, reply, tweet, user, whitelist_users, **kwds):
 
     # Allow repeated requests without incurring API limits.
     if user.id in REPLIERS_SEEN:
+        LOGGER.info(f'Already blocked replier={user.screen_name}')
         return
 
     if whitelist.should_block_user(tweepy_api, me, user, whitelist_users, **kwds):
         if not getattr(user, 'blocking', False):
-            tweepy_api.create_block(user_id=user.id)
+            api.create_block(tweepy_api, follower.id)
 
         # Memoize blocked account.
         LOGGER.info(f'Blocked replier={user.screen_name}')
