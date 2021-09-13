@@ -1,6 +1,6 @@
 '''
-    data
-    ====
+    databases
+    =========
 
     Access to all the database stores.
 '''

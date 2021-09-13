@@ -36,51 +36,55 @@ from . import whitelist
 # Logger for BlockFollowers.
 LOGGER = log.new_logger('BlockFollowers')
 # Previously processed accounts.
-ACCOUNTS_PROCESSED = collections.wired_tiger_dict(
-    name='BlockFollowersProcessedAccounts',
-    key_format='r',
-    value_format='Sr',
-    columns=('user_id', 'screen_name', 'cursor')
+ACCOUNTS_PROCESSED = collections.sqlite_dict(
+    table='block_followers_processed_accounts',
+    columns=(
+        ('user_id', 'TEXT', False),
+        ('screen_name', 'TEXT', False),
+        ('cursor', 'TEXT', True),
+    ),
+    primary_key='user_id',
 )
 # Previously seen account screen names.
-FOLLOWERS_SEEN = collections.wired_tiger_dict(
-    name='BlockFollowersSeenFollowers',
-    key_format='r',
-    value_format='S',
-    columns=('user_id', 'screen_name')
+FOLLOWERS_SEEN = collections.sqlite_dict(
+    table='block_followers_seen_followers',
+    columns=(
+        ('user_id', 'TEXT', False),
+        ('screen_name', 'TEXT', False),
+    ),
+    primary_key='user_id',
 )
 # Previously blocked account screen names.
-FOLLOWERS_BLOCKED = collections.wired_tiger_dict(
-    name='BlockFollowersBlockedFollowers',
-    key_format='r',
-    value_format='SbbbbQQQQQSSSSSSSrS',
+FOLLOWERS_BLOCKED = collections.sqlite_dict(
+    table='block_followers_blocked_followers',
     columns=(
         # Basic Follower Info
-        'follower_id',
-        'follower_screen_name',
+        ('follower_id', 'TEXT', False),
+        ('follower_screen_name', 'TEXT', False),
         # Booleans.
-        'follower_default_profile',
-        'follower_default_profile_image',
-        'follower_protected',
-        'follower_verified',
+        ('follower_default_profile', 'INTEGER', False),
+        ('follower_default_profile_image', 'INTEGER', False),
+        ('follower_protected', 'INTEGER', False),
+        ('follower_verified', 'INTEGER', False),
         # Numbers.
-        'follower_favourites_count',
-        'follower_followers_count',
-        'follower_friends_count',
-        'follower_listed_count',
-        'follower_statuses_count',
+        ('follower_favourites_count', 'INTEGER', False),
+        ('follower_followers_count', 'INTEGER', False),
+        ('follower_friends_count', 'INTEGER', False),
+        ('follower_listed_count', 'INTEGER', False),
+        ('follower_statuses_count', 'INTEGER', False),
         # Strings
-        'follower_created_at',
-        'follower_description',
-        'follower_location',
-        'follower_name',
-        'follower_url',
-        'follower_withheld_in_countries',
-        'follower_withheld_scope',
+        ('follower_created_at', 'TEXT', False),
+        ('follower_description', 'TEXT', False),
+        ('follower_location', 'TEXT', False),
+        ('follower_name', 'TEXT', False),
+        ('follower_url', 'TEXT', False),
+        ('follower_withheld_in_countries', 'TEXT', False),
+        ('follower_withheld_scope', 'TEXT', False),
         # Basic Account Info
-        'account_id',
-        'account_screen_name',
-    )
+        ('account_id', 'TEXT', False),
+        ('account_screen_name', 'TEXT', False),
+    ),
+    primary_key='follower_id',
 )
 
 def followers(tweepy_api, account):
@@ -88,8 +92,9 @@ def followers(tweepy_api, account):
 
     # Get the current cursor for the account.
     cursor_state = api.CursorState()
-    if account.id in ACCOUNTS_PROCESSED:
-        cursor_state.next_cursor = ACCOUNTS_PROCESSED[account.id][1]
+    previous = ACCOUNTS_PROCESSED.get(str(account.id))
+    if previous is not None:
+        cursor_state.next_cursor = int(previous['cursor'])
     if cursor_state.next_cursor == api.END_CURSOR:
         # Previously finished the account, don't make any API requests.
         return
@@ -108,18 +113,24 @@ def followers(tweepy_api, account):
             yield follower
     except tweepy.TweepError:
         # Store the cursor state on an error and re-raise.
-        ACCOUNTS_PROCESSED[account.id] = (account.screen_name, cursor_state.next_cursor)
+        ACCOUNTS_PROCESSED[str(account.id)] = {
+            'screen_name': account.screen_name,
+            'cursor': str(cursor_state.next_cursor),
+        }
         raise
 
     # Store that all followers have been processed for account.
-    ACCOUNTS_PROCESSED[account.id] = (account.screen_name, api.END_CURSOR)
+    ACCOUNTS_PROCESSED[str(account.id)] = {
+        'screen_name': account.screen_name,
+        'cursor': str(api.END_CURSOR),
+    }
 
 
 def block_follower(tweepy_api, me, account, follower, whitelist_users, **kwds):
     '''Block account if not white-listed.'''
 
     # Allow repeated requests without incurring API limits.
-    if follower.id in FOLLOWERS_SEEN:
+    if str(follower.id) in FOLLOWERS_SEEN:
         LOGGER.info(f'Already blocked follower={follower.screen_name}')
         return
 
@@ -129,35 +140,38 @@ def block_follower(tweepy_api, me, account, follower, whitelist_users, **kwds):
 
         # Memoize blocked account.
         LOGGER.info(f'Blocked follower={follower.screen_name}')
-        FOLLOWERS_BLOCKED[follower.id] = (
+        withheld_countries = ','.join(getattr(follower, 'withheld_in_countries', []))
+        FOLLOWERS_BLOCKED[str(follower.id)] = {
             # Basic Follower Info
-            follower.screen_name,
+            'follower_screen_name': follower.screen_name,
             # Booleans
-            follower.default_profile,
-            follower.default_profile_image,
-            follower.protected,
-            follower.verified,
+            'follower_default_profile': int(follower.default_profile),
+            'follower_default_profile_image': int(follower.default_profile_image),
+            'follower_protected': int(follower.protected),
+            'follower_verified': int(follower.verified),
             # Numbers
-            follower.favourites_count,
-            follower.followers_count,
-            follower.friends_count,
-            follower.listed_count,
-            follower.statuses_count,
+            'follower_favourites_count': follower.favourites_count,
+            'follower_followers_count': follower.followers_count,
+            'follower_friends_count': follower.friends_count,
+            'follower_listed_count': follower.listed_count,
+            'follower_statuses_count': follower.statuses_count,
             # Strings
-            str(follower.created_at),
-            follower.description or '',
-            follower.location or '',
-            follower.name,
-            follower.url or '',
-            ','.join(getattr(follower, 'withheld_in_countries', [])),
-            getattr(follower, 'withheld_scope', ''),
+            'follower_created_at': str(follower.created_at),
+            'follower_description': follower.description or '',
+            'follower_location': follower.location or '',
+            'follower_name': follower.name,
+            'follower_url': follower.url or '',
+            'follower_withheld_in_countries': withheld_countries,
+            'follower_withheld_scope': getattr(follower, 'withheld_scope', ''),
             # Basic Account Info
-            account.id,
-            account.screen_name,
-        )
+            'account_id': str(account.id),
+            'account_screen_name': account.screen_name,
+        }
 
     # Memoize seen account.
-    FOLLOWERS_SEEN[follower.id] = follower.screen_name
+    FOLLOWERS_SEEN[str(follower.id)] = {
+        'screen_name': follower.screen_name,
+    }
 
 
 def block_followers(

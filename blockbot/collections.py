@@ -5,119 +5,85 @@
     High-level, file-backed collections to simplify memoizing data.
 
     The collections are file-backed, so they are only transiently in
-    memory. These use WiredTiger, the high-performance protocol behind
-    MongoDB, for storage.
+    memory. These use SQLite, a file-based SQL database, for storage.
 '''
 
 import atexit
 import csv
 import collections.abc
 import os
+import sqlite3
 import typing
-import wiredtiger
 
 from . import path
 
-# HELPERS
+# SQL
 
-def filter_columns(columns, key_format, value_format):
-    '''Get the serialized CSV columns.'''
-
-    fmt = key_format + value_format
-    if columns is None:
-        return None
-    zipped = zip(fmt, columns)
-    return [column for letter, column in zipped if letter != 'x']
+def table_exists(table):
+    '''Create a format string to check if a table exists.'''
+    # NOTE: We don't worry about SQL injection here, since we trust the table names.
+    return f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table}';"
 
 
-def filter_fmt(key_format, value_format):
-    '''Get the filtered format variable (missing 'x' values).'''
+def create_table(table, columns, primary_key):
+    '''Convert a list of columns into a string to pass to cursor.execute().'''
 
-    fmt = key_format + value_format
-    return fmt.replace('x', '')
+    # NOTE: We don't worry about SQL injection here, since we trust the table names.
+    column_str = []
+    for (name, column_type, nullable) in columns:
+        column = f'{name} {column_type}'
+        if not nullable:
+            column = f'{column} NOT NULL'
+        if name == primary_key:
+            column = f'{column} PRIMARY KEY'
+        column_str.append(column)
+    return f'CREATE TABLE IF NOT EXISTS {table} ({", ".join(column_str)});'
 
+def create_index(table, column, unique):
+    '''Convert an column name into a string to pass to cursor.'''
 
-def pack_csv_value(value, letter):
-    '''Pack value to CSV.'''
+    create = 'CREATE'
+    if unique:
+        create = f'{create} UNIQUE'
+    return f'{create} INDEX IF NOT EXISTS {column}_index ON {table} ({column});'
 
-    if letter == 's' or letter == 'S':
-        return value.encode('unicode_escape').decode('utf-8')
-    elif letter == 'u':
-        raise ValueError('Cannot serialize raw byte array to CSV.')
-    elif letter == 'x':
-        raise ValueError('Cannot serialize empty value to CSV.')
-    else:
-        # Integral type.
-        return str(value)
+def unsafe_select(table, condition, columns='*'):
+    '''Create a query string to find a row.'''
 
+    # WARNING: this can lead to SQL injection: only use it with
+    # trusted parameters, that is, supplied by the programmer and
+    # not by user-data.
+    return f'SELECT {columns} FROM {table} WHERE {condition};'
 
-def pack_csv(row, fmt):
-    '''Pack row to CSV'''
+def unsafe_delete(table, condition):
+    '''Create a statement to delete a row.'''
 
-    zipped = zip(row, fmt)
-    return [pack_csv_value(value, letter) for value, letter in zipped]
+    # WARNING: this can lead to SQL injection: only use it with
+    # trusted parameters, that is, supplied by the programmer and
+    # not by user-data.
+    return f'DELETE FROM {table} WHERE {condition};'
 
+def unsafe_insert(table, values, columns=None):
+    '''Create a string to insert a row into the database.'''
 
-def unpack_csv_value(string, letter):
-    '''Unpack value from CSV.'''
+    # WARNING: this can lead to SQL injection: only use it with
+    # trusted parameters, that is, supplied by the programmer and
+    # not by user-data.
+    insert = f'INSERT OR REPLACE INTO {table}'
+    if columns is not None:
+        insert = f'{insert} ({", ".join(columns)})'
+    return f'{insert} VALUES({", ".join(values)});'
 
-    if letter == 's' or letter == 'S':
-        return string.encode('utf-8').decode('unicode_escape')
-    elif letter == 'u':
-        raise ValueError('Cannot load raw byte array from CSV.')
-    elif letter == 'x':
-        raise ValueError('Cannot load empty value from CSV.')
-    else:
-        # Integral type.
-        return int(string)
+def unsafe_insert_if_not_exists(table, values, columns=None):
+    '''Create a string to insert a row into the database if the key does not exist.'''
 
-
-def unpack_csv(row, fmt):
-    '''Unpack row from CSV.'''
-
-    zipped = zip(row, fmt)
-    return [unpack_csv_value(string, letter) for string, letter in zipped]
-
-
-def new_keygetter(key_format):
-    '''Create keygetter from the number of items in the key.'''
-
-    key_count = len(key_format.replace('x', ''))
-    if key_count == 0:
-        return lambda x: None
-    if key_count == 1:
-        return lambda x: x[0]
-    return lambda x: tuple(x[:key_count])
-
-
-def new_valuegetter(key_format, value_format):
-    '''Create valuegetter from the number of items in the key.'''
-
-    key_count = len(key_format.replace('x', ''))
-    value_count = len(value_format.replace('x', ''))
-    if value_count == 0:
-        return lambda x: None
-    if value_count == 1:
-        return lambda x: x[key_count]
-    return lambda x: tuple(x[key_count:])
-
-
-def new_rowgetter(actual_columns, expected_columns):
-    '''Create a rowgetter that re-orders the row items to be in the expected format.'''
-
-    if len(actual_columns) != len(expected_columns):
-        raise ValueError('Invalid columns for CSV file.')
-
-    column_index = {j: i for i, j in enumerate(expected_columns)}
-    order = [column_index[i] for i in actual_columns]
-
-    def rowgetter(in_row):
-        out_row = [None for _ in range(len(in_row))]
-        for in_index, out_index in enumerate(order):
-            out_row[out_index] = in_row[in_index]
-        return out_row
-
-    return rowgetter
+    # WARNING: this can lead to SQL injection: only use it with
+    # trusted parameters, that is, supplied by the programmer and
+    # not by user-data.
+    insert = f'INSERT OR IGNORE INTO {table}'
+    if columns is not None:
+        insert = f'{insert} ({", ".join(columns)})'
+    return f'{insert} VALUES({", ".join(values)});'
 
 
 # CONNECTION
@@ -131,7 +97,7 @@ class Connection:
     def __init__(self, db_dir: str):
         self._path = db_dir
         self._conn = None
-        self._session = None
+        self._cursor = None
         self._open_connections = 0
 
     def __enter__(self):
@@ -150,37 +116,56 @@ class Connection:
         '''Open connection to database if none exist, and increment open connections.'''
 
         if self._conn is None:
-            self._conn = wiredtiger.wiredtiger_open(self._path, 'create')
-            self._session = self._conn.open_session()
+            self._conn = sqlite3.connect(self._path)
+            self._cursor = self._conn.cursor()
         self._open_connections += 1
 
     def close(self) -> None:
         '''Decrement open connections, and close connection if count reaches 0.'''
 
         if self._conn is not None:
+            # Ensure we commit any changes over-eagerly.
+            self._conn.commit()
             self._open_connections -= 1
         if self._conn is not None and self._open_connections == 0:
             self._conn.close()
             self._conn = None
-            self._session = None
+            self._cursor = None
+
+    def execute(self, statement, *parameters):
+        '''Execute a given statement, with the additional parameters.'''
+
+        if not self.is_open():
+            raise RuntimeError('Cannot execute statement after closing connection.')
+        return self._cursor.execute(statement, parameters)
 
     def begin_transaction(self):
-        return self._session.begin_transaction()
+        '''Begin SQLite transaction.'''
+        if self._conn.in_transaction:
+            self.execute('END TRANSACTION;')
+        self.execute('BEGIN TRANSACTION;')
 
     def commit_transaction(self):
-        return self._session.commit_transaction()
+        '''Commit SQLite transaction.'''
+        self.execute('COMMIT;')
 
     def rollback_transaction(self):
-        return self._session.rollback_transaction()
+        '''Rollback SQLite transaction.'''
+        self.execute('ROLLBACK;')
 
-    def open_cursor(self, table):
-        return self._session.open_cursor(table)
+    def create_table(self, table, columns, primary_key, indexes=None):
+        '''Try to create a new table in the database if it doesn't exist.'''
 
-    def create(self, table, table_format):
-        return self._session.create(table, table_format)
+        statement = create_table(table, columns, primary_key)
+        self.execute(statement)
+        if indexes is not None:
+            for (column, unique) in indexes:
+                statement = create_index(table, column, unique)
+                self.execute(statement)
 
-    def drop(self, table):
-        return self._session.drop(table)
+    def drop_table(self, table):
+        '''Delete (drop) the given table.'''
+        self.execute(f'DROP TABLE {table};')
 
     def is_open(self) -> bool:
         return self._conn is not None
@@ -188,51 +173,69 @@ class Connection:
 # COLLECTIONS
 
 
-class WiredTigerBase:
-    '''Base class for a wired-tiger wrapper.'''
+class SqliteDict(collections.abc.MutableMapping):
+    '''
+    Dict-like wrapper for an underlying SQLite table.
+
+    We effectively use a SQLite database like a key/value store,
+    just for portability since it's standard in Python without
+    any external dependencies. We also add a few other features
+    for nicer lookups on indexed values.
+    '''
 
     def __init__(
         self,
-        db_dir: str,
-        name: str,
-        key_format: str,
-        value_format: str,
-        columns: typing.Optional[typing.Tuple[str]]
+        dbpath: str,
+        table: str,
+        columns: typing.List[typing.Tuple[str, str, bool]],
+        primary_key: str,
+        indexes: typing.Optional[typing.Tuple[str, bool]] = None,
     ) -> None:
-        self._path = os.path.realpath(db_dir)
+        self._path = dbpath
         self._conn = Connection.new(self._path)
-        self._curr = None
-        self._name = name
-        self._table = f'table:{self._name}'
-        self._key_format = key_format
-        self._value_format = value_format
+        self._table = table
         self._columns = columns
-        self._format = f'key_format={key_format},value_format={value_format}'
-        if columns is not None:
-            self._format += f',columns=({",".join(columns)})'
+        self._primary_key = primary_key
+        self._indexes = indexes
+
+        # Some internal helpers.
+        self._column_names =[i[0] for i in columns]
+
+    # PROPERTIES
+
+    @property
+    def table(self):
+        '''Get the table name.'''
+        return self._table
+
+    @property
+    def columns(self):
+        '''Get column names.'''
+        return self._column_names
+
+    @property
+    def primary_key(self):
+        '''Get primary key name.'''
+        return self._primary_key
 
     # CONNECTION
 
     def open(self) -> None:
         '''Open connection to table.'''
 
-        os.makedirs(self._path, exist_ok=True)
+        if self._conn is None:
+            raise ValueError('Trying to open table on a closed connection.')
+        if self._path != ':memory:':
+            os.makedirs(os.path.dirname(self._path), exist_ok=True)
         self._conn.open()
 
-        # Try to open a cursor to the table, otherwise, create the table
-        # and open the cursor.
-        try:
-            self._curr = self._conn.open_cursor(self._table)
-        except wiredtiger.WiredTigerError as exc:
-            if exc.args == ('No such file or directory',):
-                # Table does not exist.
-                code = self._conn.create(self._table, self._format)
-                if code != 0:
-                    raise wiredtiger.WiredTigerError(f'Unable to create table, error code {code}.')
-                self._curr = self._conn.open_cursor(self._table)
-            else:
-                # Unknown error, re-raise.
-                raise
+        # Try to create the table if it doesn't exist, along with indexes.
+        self._conn.create_table(
+            self.table,
+            self._columns,
+            self.primary_key,
+            self._indexes,
+        )
 
     def close(self) -> None:
         '''Close connection.'''
@@ -240,11 +243,15 @@ class WiredTigerBase:
         if self._conn is not None:
             self._conn.close()
         self._conn = None
-        self._curr = None
 
     def is_open(self) -> bool:
         '''Check if connection is open.'''
-        return self._curr is not None
+
+        if self._conn is None or not self._conn.is_open():
+            return False
+        # Need to check if the table exists.
+        cursor = self._conn.execute(table_exists(self.table))
+        return cursor.fetchone() is not None
 
     # SERIALIZATION
 
@@ -261,23 +268,16 @@ class WiredTigerBase:
         if not self.is_open():
             self.open()
 
-        # Get the column headers and the packing format.
-        columns = filter_columns(self._columns, self._key_format, self._value_format)
-        fmt = filter_fmt(self._key_format, self._value_format)
-
         # Write to file.
         with open(path, mode) as f:
             writer = csv.writer(f, delimiter=delimiter, quotechar=quotechar)
             # Write the columns.
-            if columns is not None:
-                writer.writerow(columns)
+            if self.columns is not None:
+                writer.writerow(self.columns)
 
-            # Write the values.
-            # Iteration returns a flat map of values.
-            # Reset the cursor so we always iterate over the full map.
-            self._curr.reset()
-            for item in self._curr.__iter__():
-                writer.writerow(pack_csv(item, fmt))
+            statement = f'SELECT * FROM {self.table};'
+            for row in self._conn.execute(statement):
+                writer.writerow(row)
 
     def load_csv(
         self,
@@ -292,12 +292,6 @@ class WiredTigerBase:
         if not self.is_open():
             self.open()
 
-        # Get the column headers and the packing format.
-        columns = filter_columns(self._columns, self._key_format, self._value_format)
-        fmt = filter_fmt(self._key_format, self._value_format)
-        keygetter = new_keygetter(self._key_format)
-        valuegetter = new_valuegetter(self._key_format, self._value_format)
-
         # Roll into a single transaction. If it fails, we want to revert.
         self._conn.begin_transaction()
         try:
@@ -305,24 +299,19 @@ class WiredTigerBase:
                 reader = csv.reader(f, delimiter=delimiter, quotechar=quotechar)
                 iterable = iter(reader)
 
-                # Need to determine how to parser the data if the columns
-                # are not None.
-                rowgetter = lambda x: x
-                if self._columns is not None:
-                    # Likely going to need to re-arrange items...
-                    rowgetter = new_rowgetter(next(iterable), columns)
+                columns = next(iterable)
+                if columns != self.columns:
+                    raise ValueError(f'Unexpected column headings: got {columns}, expected {self.columns}.')
 
                 # Add all values from disk.
                 # Use insert which either inserts new entries and overwrites
                 # existing ones.
+                params = ['?'] * len(self.columns)
+                statement = unsafe_insert(self.table, params)
                 for row in iterable:
-                    if len(row) != len(fmt):
+                    if len(row) != len(self.columns):
                         raise ValueError('Invalid number of items for row in CSV file.')
-                    # Going to need to re-arrange the row to match the format...
-                    item = unpack_csv(rowgetter(row), fmt)
-                    self._curr.set_key(keygetter(item))
-                    self._curr.set_value(valuegetter(item))
-                    self._curr.insert()
+                    self._conn.execute(statement, *row)
 
             # Commit transaction when finished with all data.
             self._conn.commit_transaction()
@@ -331,123 +320,141 @@ class WiredTigerBase:
             self._conn.rollback_transaction()
             raise
 
+    # MAGIC
 
-class WiredTigerDict(WiredTigerBase, collections.abc.MutableMapping):
-    '''File-backed store resembling a Python dict. Lazily opened.'''
+    def _torow(self, key, value):
+        '''Convert a dict value to a row.'''
 
-    def __init__(
-        self,
-        name: str,
-        key_format='S',
-        value_format='S',
-        columns=None,
-    ) -> None:
-        super().__init__(path.db_dir(), name, key_format, value_format, columns)
+        copy = {self.primary_key: key, **value}
+        return [copy[i] for i in self.columns]
+
+    def _tovalue(self, value, columns=None):
+        '''Convert a row to a dict result.'''
+
+        if columns is None:
+            columns = self.columns
+
+        result = dict(zip(columns, value))
+        result.pop(self.primary_key, None)
+        return result
+
+    def keys(self):
+        '''Get an iterable yielding all subsequent keys in the dict.'''
+
+        for key, _ in self.items():
+            yield key
+
+    def values(self):
+        '''Get an iterable yielding all subsequent values in the dict.'''
+
+        for _, value in self.items():
+            yield value
+
+    def items(self):
+        '''Get an iterable yielding all subsequent items in the dict.'''
+
+        if not self.is_open():
+            self.open()
+
+        statement = f'SELECT * FROM {self.table};'
+        for row in self._conn.execute(statement):
+            value = dict(zip(self.columns, row))
+            key = value.pop(self.primary_key)
+            yield (key, value)
+
+    def get(self, key, default=None):
+        '''Get an item from the SQL database, returning default if it's not present.'''
+
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+    def setdefault(self, key, default):
+        '''Set a value if not present.'''
+
+        if not self.is_open():
+            self.open()
+
+        params = ['?'] * len(self.columns)
+        statement = unsafe_insert_if_not_exists(self.table, params)
+        self._conn.execute(statement, *self._torow(key, default))
 
     def __getitem__(self, key):
         if not self.is_open():
             self.open()
-        return self._curr.__getitem__(key)
+
+        condition = f'{self.primary_key} = ?'
+        statement = unsafe_select(self.table, condition)
+        cursor = self._conn.execute(statement, key)
+        value = cursor.fetchone()
+        if value is None:
+            raise KeyError(f'SqliteDict has no key "{key}".')
+        return self._tovalue(value, self.columns)
 
     def __setitem__(self, key, value):
         if not self.is_open():
             self.open()
-        self._curr.__setitem__(key, value)
+
+        params = ['?'] * len(self.columns)
+        statement = unsafe_insert(self.table, params)
+        self._conn.execute(statement, *self._torow(key, value))
 
     def __delitem__(self, key):
         if not self.is_open():
             self.open()
-        self._curr.__delitem__(key)
+
+        condition = f'{self.primary_key} = ?'
+        statement = unsafe_delete(self.table, condition)
+        self._conn.execute(statement, key)
 
     def __iter__(self):
-        if not self.is_open():
-            self.open()
-
-        # Need to consider unpacking keys and values.
-        keygetter = new_keygetter(self._key_format)
-        valuegetter = new_valuegetter(self._key_format, self._value_format)
-
-        # Reset the cursor so we always iterate over the full map.
-        self._curr.reset()
-        for item in self._curr.__iter__():
-            yield (keygetter(item), valuegetter(item))
-
-    def __len__(self):
-        raise NotImplementedError
-
-
-class WiredTigerSet(WiredTigerBase, collections.abc.MutableSet):
-    '''File-backed store resembling a Python set. Lazily opened.'''
-
-    def __init__(
-        self,
-        name: str,
-        key_format='S',
-        columns=None,
-    ) -> None:
-        if columns is not None:
-            # Need to add our own, internal column here...
-            columns = (*columns, 'none')
-        super().__init__(path.db_dir(), name, key_format, 'x', columns)
+        return self.keys()
 
     def __contains__(self, key):
         if not self.is_open():
             self.open()
-        self._curr.set_key(key)
-        return self._curr.search() == 0
 
-    def add(self, key):
-        if not self.is_open():
-            self.open()
-        self._curr.set_key(key)
-        self._curr.set_value()
-        self._curr.insert()
-
-    def discard(self, key):
-        if not self.is_open():
-            self.open()
-        self._curr.set_key(key)
-        if self._curr.remove() != 0:
-            raise KeyError
-
-    def __iter__(self):
-        if not self.is_open():
-            self.open()
-
-        # If we have a single key, unpack it, otherwise, return a tuple.
-        keygetter = new_keygetter(self._key_format)
-
-        # Reset the cursor so we always iterate over the full map.
-        self._curr.reset()
-        for item in self._curr.__iter__():
-            yield keygetter(item)
+        condition = f'{self.primary_key} = ?'
+        statement = unsafe_select(self.table, condition)
+        cursor = self._conn.execute(statement, key)
+        return cursor.fetchone() is not None
 
     def __len__(self):
-        raise NotImplementedError
+        if not self.is_open():
+            self.open()
+
+        statement = f'SELECT COUNT(*) FROM {self._table};'
+        cursor = self._conn.execute(statement)
+        return cursor.fetchone()[0]
 
 # MANAGED OBJECTS
 
+def sqlite_dict(
+    table: str,
+    columns: typing.List[typing.Tuple[str, str, bool]],
+    primary_key: str,
+    indexes: typing.Optional[typing.Tuple[str, bool]] = None,
+    dbpath: str = path.db_path(),
+) -> SqliteDict:
+    '''
+    Generate dict with SQLite backing store.
 
-def wired_tiger_dict(
-    name: str,
-    key_format: str = 'S',
-    value_format: str = 'S',
-    columns=None,
-) -> WiredTigerDict:
-    '''Generate dict with wiredtiger backing store.'''
+    # Example
 
-    inst = WiredTigerDict(name, key_format, value_format, columns)
-    atexit.register(inst.close)
-    return inst
+        sqlite_dict(
+            table='block_followers_processed_accounts',
+            columns=(
+                ('user_id', 'TEXT', False),
+                ('screen_name', 'TEXT', False),
+                ('cursor', 'TEXT', True),
+            ),
+            # indexes=('screen_name', True),
+            primary_key='user_id',
+            dbpath=':memory:',
+        )
+    '''
 
-
-def wired_tiger_set(
-    name: str,
-    key_format: str = 'S',
-    columns=None,
-) -> WiredTigerSet:
-    '''Generate set with wiredtiger backing store.'''
-
-    inst = WiredTigerSet(name, key_format, columns)
+    inst = SqliteDict(dbpath, table, columns, primary_key, indexes)
     atexit.register(inst.close)
     return inst

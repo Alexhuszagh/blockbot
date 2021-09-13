@@ -37,77 +37,83 @@ from . import whitelist
 # Logger for BlockMediaReply.
 LOGGER = log.new_logger('BlockMediaReplies')
 # Previously processed tweets from account.
-TWEETS_PROCESSED = collections.wired_tiger_dict(
-    name='BlockMediaRepliesProcessedTweets',
-    key_format='r',
-    value_format='Sr',
-    columns=('user_id', 'screen_name', 'max_id')
+TWEETS_PROCESSED = collections.sqlite_dict(
+    table='block_media_replies_processed_tweets',
+    columns=(
+        ('user_id', 'TEXT', False),
+        ('screen_name', 'TEXT', False),
+        ('max_id', 'TEXT', True),
+    ),
+    primary_key='user_id',
 )
 # Previously processed replies we don't want to re-process.
-REPLIES_PROCESSED = collections.wired_tiger_dict(
-    name='BlockMediaRepliesProcessedReplies',
-    key_format='r',     # Original Tweet ID
-    value_format='r',   # Max ID for the replies.
-    columns=('tweet_id', 'max_id')
+REPLIES_PROCESSED = collections.sqlite_dict(
+    table='block_media_replies_processed_replies',
+    columns=(
+        ('tweet_id', 'TEXT', False), # Original Tweet ID
+        ('max_id', 'TEXT', True),    # Max ID for the replies.
+    ),
+    primary_key='tweet_id',
 )
 # Previously seen account screen names of repliers.
-REPLIERS_SEEN = collections.wired_tiger_dict(
-    name='BlockFollowersSeenRepliers',
-    key_format='r',
-    value_format='S',
-    columns=('user_id', 'screen_name')
+REPLIERS_SEEN = collections.sqlite_dict(
+    table='block_followers_seen_repliers',
+    columns=(
+        ('user_id', 'TEXT', False),
+        ('screen_name', 'TEXT', False),
+    ),
+    primary_key='user_id',
 )
 # Previously blocked account screen names of replier.
-REPLIERS_BLOCKED = collections.wired_tiger_dict(
-    name='BlockMediaRepliesBlockedRepliers',
-    key_format='r',
-    value_format='SrbbbbQQQQQSSSSSSSrrSbbbQQSSSSSSSS',
+REPLIERS_BLOCKED = collections.sqlite_dict(
+    table='block_media_replies_blocked_repliers',
     columns=(
         # Basic Replier Info
-        'replier_id',
-        'replier_screen_name',
-        'reply_id',
+        ('replier_id', 'TEXT', False),
+        ('replier_screen_name', 'TEXT', False),
+        ('reply_id', 'TEXT', False),
         # Replier Booleans.
-        'replier_default_profile',
-        'replier_default_profile_image',
-        'replier_protected',
-        'replier_verified',
+        ('replier_default_profile', 'INTEGER', False),
+        ('replier_default_profile_image', 'INTEGER', False),
+        ('replier_protected', 'INTEGER', False),
+        ('replier_verified', 'INTEGER', False),
         # Replier Numbers.
-        'replier_favourites_count',
-        'replier_repliers_count',
-        'replier_friends_count',
-        'replier_listed_count',
-        'replier_statuses_count',
+        ('replier_favourites_count', 'INTEGER', False),
+        ('replier_repliers_count', 'INTEGER', False),
+        ('replier_friends_count', 'INTEGER', False),
+        ('replier_listed_count', 'INTEGER', False),
+        ('replier_statuses_count', 'INTEGER', False),
         # Replier Strings
-        'replier_created_at',
-        'replier_description',
-        'replier_location',
-        'replier_name',
-        'replier_url',
-        'replier_withheld_in_countries',
-        'replier_withheld_scope',
+        ('replier_created_at', 'TEXT', False),
+        ('replier_description', 'TEXT', False),
+        ('replier_location', 'TEXT', False),
+        ('replier_name', 'TEXT', False),
+        ('replier_url', 'TEXT', False),
+        ('replier_withheld_in_countries', 'TEXT', False),
+        ('replier_withheld_scope', 'TEXT', False),
         # Basic Tweet Info
-        'tweet_id',
-        'tweet_author_id',
-        'tweet_author_screen_name',
+        ('tweet_id', 'TEXT', False),
+        ('tweet_author_id', 'TEXT', False),
+        ('tweet_author_screen_name', 'TEXT', False),
         # Reply Booleans
-        'reply_is_quote_status',
-        'reply_possibly_sensitive',
-        'reply_withheld_copyright',
+        ('reply_is_quote_status', 'INTEGER', False),
+        ('reply_possibly_sensitive', 'INTEGER', False),
+        ('reply_withheld_copyright', 'INTEGER', False),
         # Reply Numbers
-        'reply_retweet_count',
-        'reply_favorite_count',
+        ('reply_retweet_count', 'INTEGER', False),
+        ('reply_favorite_count', 'INTEGER', False),
         # Reply Strings
-        'reply_created_at',
-        'reply_lang',
-        'reply_source',
-        'reply_withheld_in_countries',
-        'reply_withheld_scope',
+        ('reply_created_at', 'TEXT', False),
+        ('reply_lang', 'TEXT', False),
+        ('reply_source', 'TEXT', False),
+        ('reply_withheld_in_countries', 'TEXT', False),
+        ('reply_withheld_scope', 'TEXT', False),
         # Media Basic Info
-        'media_type',
-        'media_content_type',       # CSV-delimited if multiple values
-        'media_url',                # CSV-delimited if multiple values
-    )
+        ('media_type', 'TEXT', False),
+        ('media_content_type', 'TEXT', False),  # CSV-delimited if multiple values
+        ('media_url', 'TEXT', False),           # CSV-delimited if multiple values
+    ),
+    primary_key='replier_id',
 )
 
 
@@ -116,8 +122,9 @@ def tweets(tweepy_api, account):
 
     # Get the current max_id for the tweets from account.
     id_state = api.IdState()
-    if account.id in TWEETS_PROCESSED:
-        id_state.max_id = TWEETS_PROCESSED[account.id][1]
+    previous = TWEETS_PROCESSED.get(str(account.id))
+    if previous is not None:
+        id_state.max_id = int(previous['max_id'])
     if id_state.max_id == api.END_MAX_ID:
         # Previously finished all Tweets from account, don't make any API requests.
         return
@@ -133,19 +140,26 @@ def tweets(tweepy_api, account):
             yield tweet
     except tweepy.TweepError:
         # Store the id state on an error and re-raise.
-        TWEETS_PROCESSED[account.id] = (account.screen_name, id_state.max_id)
+        TWEETS_PROCESSED[str(account.id)] = {
+            'screen_name': account.screen_name,
+            'max_id': str(id_state.max_id),
+        }
         raise
 
     # Store that all Tweets have been processed for account.
-    TWEETS_PROCESSED[account.id] = (account.screen_name, api.END_MAX_ID)
+    TWEETS_PROCESSED[str(account.id)] = {
+        'screen_name': account.screen_name,
+        'max_id': str(api.END_MAX_ID),
+    }
 
 
 def replies(tweepy_api, tweet, previous_id=None):
     '''Find replies to Tweet.'''
 
     id_state = api.IdState()
-    if tweet.id in REPLIES_PROCESSED:
-        id_state.max_id = REPLIES_PROCESSED[tweet.id]
+    previous = REPLIES_PROCESSED.get(str(tweet.id))
+    if previous is not None:
+        id_state.max_id = int(previous['max_id'])
     if id_state.max_id == api.END_MAX_ID:
         # Previously finished all replies to the tweet, don't make any API requests.
         return
@@ -171,11 +185,15 @@ def replies(tweepy_api, tweet, previous_id=None):
             yield reply
     except tweepy.TweepError:
         # Store the id state on an error and re-raise.
-        REPLIES_PROCESSED[tweet.id] = id_state.max_id
+        REPLIES_PROCESSED[str(tweet.id)] = {
+            'max_id': str(id_state.max_id),
+        }
         raise
 
     # Store that all replies have been processed for Tweet.
-    REPLIES_PROCESSED[tweet.id] = api.END_MAX_ID
+    REPLIES_PROCESSED[str(tweet.id)] = {
+        'max_id': str(api.END_MAX_ID),
+    }
 
 
 def media_has_photo(media):
@@ -282,66 +300,70 @@ def block_account(tweepy_api, me, reply, tweet, user, whitelist_users, **kwds):
     '''Block account if not white-listed.'''
 
     # Allow repeated requests without incurring API limits.
-    if user.id in REPLIERS_SEEN:
+    if str(user.id) in REPLIERS_SEEN:
         LOGGER.info(f'Already blocked replier={user.screen_name}')
         return
 
     if whitelist.should_block_user(tweepy_api, me, user, whitelist_users, **kwds):
         if not getattr(user, 'blocking', False):
-            api.create_block(tweepy_api, follower.id)
+            api.create_block(tweepy_api, user.id)
 
         # Memoize blocked account.
         LOGGER.info(f'Blocked replier={user.screen_name}')
         media_content_type, media_url = extract_media_url(reply)
         media = reply.extended_entities['media'][0]
-        REPLIERS_BLOCKED[user.id] = (
+        user_withheld_countries = ','.join(getattr(user, 'withheld_in_countries', []))
+        reply_withheld_countries = ','.join(getattr(reply, 'withheld_in_countries', []))
+        REPLIERS_BLOCKED[str(user.id)] = {
             # Basic Reply Info
-            user.screen_name,
-            reply.id,
+            'replier_screen_name': user.screen_name,
+            'reply_id': str(reply.id),
             # Booleans
-            user.default_profile,
-            user.default_profile_image,
-            user.protected,
-            user.verified,
+            'replier_default_profile': int(user.default_profile),
+            'replier_default_profile_image': int(user.default_profile_image),
+            'replier_protected': int(user.protected),
+            'replier_verified': int(user.verified),
             # Numbers
-            user.favourites_count,
-            user.followers_count,
-            user.friends_count,
-            user.listed_count,
-            user.statuses_count,
+            'replier_favourites_count': user.favourites_count,
+            'replier_repliers_count': user.followers_count,
+            'replier_friends_count': user.friends_count,
+            'replier_listed_count': user.listed_count,
+            'replier_statuses_count': user.statuses_count,
             # Strings
-            str(user.created_at),
-            user.description or '',
-            user.location or '',
-            user.name,
-            user.url or '',
-            ','.join(getattr(user, 'withheld_in_countries', [])),
-            getattr(user, 'withheld_scope', ''),
+            'replier_created_at': str(user.created_at),
+            'replier_description': user.description or '',
+            'replier_location': user.location or '',
+            'replier_name': user.name,
+            'replier_url': user.url or '',
+            'replier_withheld_in_countries': user_withheld_countries,
+            'replier_withheld_scope': getattr(user, 'withheld_scope', ''),
             # Basic Tweet Info
-            tweet.id,
-            tweet.user.id,
-            tweet.user.screen_name,
+            'tweet_id': str(tweet.id),
+            'tweet_author_id': str(tweet.user.id),
+            'tweet_author_screen_name': tweet.user.screen_name,
             # Reply Booleans
-            reply.is_quote_status,
-            getattr(reply, 'possibly_sensitive', False),
-            getattr(reply, 'withheld_copyright', False),
+            'reply_is_quote_status': int(reply.is_quote_status),
+            'reply_possibly_sensitive': int(getattr(reply, 'possibly_sensitive', False)),
+            'reply_withheld_copyright': int(getattr(reply, 'withheld_copyright', False)),
             # Reply Numbers
-            getattr(reply, 'retweet_count', 0),
-            getattr(reply, 'favorite_count', 0),
+            'reply_retweet_count': getattr(reply, 'retweet_count', 0),
+            'reply_favorite_count': getattr(reply, 'favorite_count', 0),
             # Reply Strings
-            str(reply.created_at),
-            getattr(reply, 'lang', ''),
-            reply.source,
-            ','.join(getattr(reply, 'withheld_in_countries', [])),
-            getattr(reply, 'withheld_scope', ''),
+            'reply_created_at': str(reply.created_at),
+            'reply_lang': getattr(reply, 'lang', ''),
+            'reply_source': reply.source,
+            'reply_withheld_in_countries': reply_withheld_countries,
+            'reply_withheld_scope': getattr(reply, 'withheld_scope', ''),
             # Media Basic Info
-            media['type'],
-            media_content_type,
-            media_url,
-        )
+            'media_type': media['type'],
+            'media_content_type': media_content_type,
+            'media_url': media_url,
+        }
 
     # Memoize seen account.
-    REPLIERS_SEEN[user.id] = user.screen_name
+    REPLIERS_SEEN[str(user.id)] = {
+        'screen_name': user.screen_name,
+    }
 
 
 def block_media_replies(

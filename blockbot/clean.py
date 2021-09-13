@@ -7,7 +7,6 @@
 
 import os
 
-from . import collections
 from . import log
 from . import path
 
@@ -25,16 +24,8 @@ def clean_logs():
 
 
 def clean_tables():
-    '''Clean existing WiredTiger data tables.'''
-
-    with collections.Connection.new(path.db_dir()) as conn:
-        for file in os.listdir(path.db_dir()):
-            if file.endswith(".wt") and not file.startswith('WiredTiger'):
-                name = file[:-3]
-                if name.isalnum():
-                    LOGGER.info(f'Cleaning dataset file "{file}"')
-                    if conn.drop(f'table:{name}') != 0:
-                        raise OSError
+    '''Clean existing SQLite data tables.'''
+    os.unlink(path.db_path())
 
 
 def clean_all():

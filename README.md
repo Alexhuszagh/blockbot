@@ -20,11 +20,9 @@ High-level utilities to make Twitter tolerable.
 
 # Getting Started
 
-blockbot requires a somewhat dev-friendlty environment, since it uses WiredTiger for a high-performance backing store. blockbot therefore requires:
+blockbot uses the builtin `sqlite3` module for minimal dependencies, only requiring:
 
 1. Python 3.7 or higher.
-2. A C compiler and autotools (`build-essential` on Ubuntu).
-2. Snappy (`libsnappy-dev` on Ubuntu).
 
 Next, install blockbot from source:
 
@@ -112,7 +110,7 @@ account_screen_name = 'twitter'
 # Optional list of account screen names to whitelist: don't block the account
 # if they follow or are followed by @jack.
 whitelist_screen_names = ['jack']
-blockbot.block_media_reply(account_screen_name, whitelist_screen_names)
+blockbot.block_media_replies(account_screen_name, whitelist_screen_names)
 
 # Valid keywords to customize connection behavior:
 #   timeout (default 5) - Seconds to timeout when making request.
@@ -130,6 +128,8 @@ blockbot.block_media_reply(account_screen_name, whitelist_screen_names)
 
 # Daemons
 
+> **NOTE:** Daemons are only supported on UNIX-like systems, AKA, Windows will not work.
+
 Daemons are long-running tasks that run as background processes. Daemons are ideally suited to a Twitter block bot, so we provide utility functions to convert any feature into a daemon.
 
 Please note that only one tasks, whether it is a daemon or a function call, should be running at a single time.
@@ -146,7 +146,7 @@ whitelist_screen_names = ['jack']
 # to the function after. This will start the task as a daemon.
 # This will exit the current interpreter.
 blockbot.as_daemon(
-    blockbot.block_media_reply, 
+    blockbot.block_media_replies, 
     account_screen_name, 
     whitelist_screen_names
 )

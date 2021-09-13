@@ -9,6 +9,10 @@
     Do not have multiple daemons running at the same time.
 '''
 
+import os
+if os.name != 'posix':
+    raise RuntimeError('Cannot use daemons on a non-POSIX operating system.')
+
 import contextlib
 import daemonize
 import gc
@@ -42,8 +46,8 @@ def get_pid(name):
     return os.path.join(tempfile.gettempdir(), f'blockbot-{name}.pid')
 
 
-def close_wiredtiger_connections():
-    '''Close all open connections to WiredTiger.'''
+def close_database_connections():
+    '''Close all open database connections.'''
 
     # Ensure we don't have any accidentally closed PIDs.
     for connection in collections.CONNECTIONS.values():
@@ -88,7 +92,7 @@ def as_daemon(method, name, *args, **kwds):
                 LOGGER.critical(str(error))
                 raise
 
-    close_wiredtiger_connections()
+    close_database_connections()
     pid = get_pid(name)
     daemon = daemonize.Daemonize(app=APP_NAME, pid=pid, action=main, keep_fds=KEEP_FDS)
     daemon.start()

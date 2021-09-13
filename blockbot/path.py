@@ -24,6 +24,10 @@ def db_dir():
     '''Get the directory to the db folder.'''
     return os.path.join(project_dir(), 'db')
 
+def db_path():
+    '''Get the filename to the SQLite database.'''
+    return os.path.join(db_dir(), 'database.sqlite')
+
 def log_dir():
     '''Get the directory to the log folder.'''
     return os.path.join(project_dir(), 'log')
