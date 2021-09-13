@@ -100,7 +100,7 @@ class RateLimit:
         if len(self._deque) == self._limit:
             start = self._deque.pop()
             diff = time.time_ns() - start
-            wait_time = (interval - diff) / 10**9
+            wait_time = (self._interval - diff) / 10**9
             time.sleep(max(wait_time, 0.0))
         self._deque.appendleft(time.time_ns())
 
