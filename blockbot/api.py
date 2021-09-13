@@ -7,9 +7,11 @@
     Update config/api.json to update credentials.
 '''
 
+import collections
 import dataclasses
 import json
 import os
+import time
 import tweepy
 import typing
 
@@ -68,6 +70,28 @@ def is_authorization_error(error):
 def is_user_not_found_error(error):
     '''Determine if the error is due to a user not being found.'''
     return error.api_code == 50
+
+# RATE LIMIT
+
+class RateLimit:
+    '''A specialized storage for a rate limit type.'''
+
+    def __init__(self, limit, interval):
+        self._limit = limit
+        self._interval = interval
+        # This is a FIFO queue, where the left-most elements
+        # are the most recent aditions.
+        self._deque = collections.deque(maxlen=limit)
+
+    def wait(self):
+        '''Try to make a call, and if so, wait.'''
+
+        if len(self._deque) == self._limit:
+            start = self._deque.pop()
+            diff = time.time_ns() - start
+            wait_time = (interval - diff) / 10**9
+            time.sleep(max(wait_time, 0.0))
+        self._deque.appendleft(time.time_ns())
 
 
 # API
