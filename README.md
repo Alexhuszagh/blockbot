@@ -49,6 +49,19 @@ A dummy example of API JSON with realistic but fake data is:
 }
 ```
 
+In addition, due to the Twitter APIv2 rate limits, you can also specify local rate limiting with the API version. An example of this would be:
+
+```json
+{
+    "consumer_key": "AIbwRVbCJMkaiQVlfJbKG5gAy",
+    "consumer_secret": "P0wiBhrdNlCTb2okvzxRGNKD4opnyOtFGM7Q6Hvmig0IzjMYw5",
+    "access_token": "Q9D4wOv9zA-q3rlIxbZgknaZKaPwGBPtiT4AcQLWZ5Q9lduhX7",
+    "access_token_secret": "lXyoz2kDkSz01riCAkbOlE4iOmSkBlHXVij",
+    "api_root": "/2",
+    "local_rate_limit": true
+}
+```
+
 For example, use `block_media_replies`, you would edit `block_media_replies.json` to have the desired data. An example would be:
 
 ```json
@@ -156,9 +169,13 @@ blockbot.as_daemon(
 
 Please note that nothing in this library is thread- or process-safe, and should not be run in multiple threads or processes with multi-threading or multi-processing. Since the bottleneck is both network I/O and Twitter's rate limits, neither multi-threading nor multi-processing makes sense and will not be supported.
 
+# Viewing Blocks
+
+Want to view who's blocked? Go to an online [SQLiteViewer](https://inloop.github.io/sqlite-viewer/) and open your database (found in `~/.blockbot/db/database.sqlite`), and you can view your blocked accounts and information on why they were blocked.
+
 # License
 
-Lexical is licensed under the Apache 2.0 license. See the LICENSE for more information.
+Blockbot is licensed under the Apache 2.0 license. See the LICENSE for more information.
 
 # Contributing
 

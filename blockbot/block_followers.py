@@ -101,7 +101,7 @@ def followers(tweepy_api, account):
 
     try:
         count = 0
-        for follower in api.followers(
+        for follower in api.get_followers(
             tweepy_api,
             user_id=account.id,
             cursor_state=cursor_state,
@@ -200,7 +200,9 @@ def block_followers(
     '''
 
     timeout = kwds.pop('timeout', api.DEFAULT_TIMEOUT)
-    tweepy_api = api.generate_api(timeout)
+    api_root = kwds.pop('api_root', None)
+    local_rate_limit = kwds.pop('local_rate_limit', None)
+    tweepy_api = api.generate_api(timeout, api_root, local_rate_limit)
     me = tweepy_api.me()
     accounts = api.lookup_users(
         tweepy_api,

@@ -73,6 +73,17 @@ def is_user_not_found_error(error):
 
 # RATE LIMIT
 
+
+def minutes_to_ns(minutes):
+    '''Convert minutes (as an integer) into nanoseconds.'''
+    return minutes * 60 * 10**9
+
+
+def hours_to_ns(hours):
+    '''Convert hours (as an integer) into nanoseconds.'''
+    return 60 * minutes_to_ns(hours)
+
+
 class RateLimit:
     '''A specialized storage for a rate limit type.'''
 
@@ -97,7 +108,204 @@ class RateLimit:
 # API
 # ---
 
-def generate_api(timeout=DEFAULT_TIMEOUT):
+TimeLimit = collections.namedtuple('TimeLimit', 'limit interval')
+
+# These take the minimum for the current user or the app,
+# to ensure the limit isn't reached. They're adapted for
+# 15 minute windows, the original interval may be longer.
+API_V11_LIMITS = {
+    'update_status': TimeLimit(300, hours_to_ns(3)),
+    'retweet': TimeLimit(300, hours_to_ns(3)),
+    'create_favorite': TimeLimit(1000, hours_to_ns(24)),
+    'create_friendship': TimeLimit(400, hours_to_ns(24)),
+    'send_direct_message': TimeLimit(1000, hours_to_ns(24)),
+    'verify_credentials': TimeLimit(75, minutes_to_ns(15)),
+    'rate_limit_status': TimeLimit(180, minutes_to_ns(15)),
+    'get_favorites': TimeLimit(75, minutes_to_ns(15)),
+    'get_follower_ids': TimeLimit(15, minutes_to_ns(15)),
+    'get_followers': TimeLimit(15, minutes_to_ns(15)),
+    'get_friend_ids': TimeLimit(15, minutes_to_ns(15)),
+    'get_friends': TimeLimit(15, minutes_to_ns(15)),
+    'get_friendship': TimeLimit(180, minutes_to_ns(15)),
+    'geo_id': TimeLimit(75, minutes_to_ns(15)),
+    'supported_languages': TimeLimit(15, minutes_to_ns(15)),
+    'get_lists': TimeLimit(15, minutes_to_ns(15)),
+    'get_list_members': TimeLimit(900, minutes_to_ns(15)),
+    'get_list_member': TimeLimit(15, minutes_to_ns(15)),
+    'get_list_memberships': TimeLimit(75, minutes_to_ns(15)),
+    'get_list_ownerships': TimeLimit(15, minutes_to_ns(15)),
+    'get_list': TimeLimit(75, minutes_to_ns(15)),
+    'list_timeline': TimeLimit(900, minutes_to_ns(15)),
+    'get_list_subscribers': TimeLimit(180, minutes_to_ns(15)),
+    'get_list_subscriber': TimeLimit(15, minutes_to_ns(15)),
+    'get_list_subscriptions': TimeLimit(15, minutes_to_ns(15)),
+    'search_tweets': TimeLimit(180, minutes_to_ns(15)),
+    'lookup_statuses': TimeLimit(900, minutes_to_ns(15)),
+    'mentions_timeline': TimeLimit(75, minutes_to_ns(15)),
+    'get_retweeter_ids': TimeLimit(75, minutes_to_ns(15)),
+    'get_retweets_of_me': TimeLimit(75, minutes_to_ns(15)),
+    'get_retweets': TimeLimit(75, minutes_to_ns(15)),
+    'get_status': TimeLimit(900, minutes_to_ns(15)),
+    'user_timeline': TimeLimit(900, minutes_to_ns(15)),
+    'available_trends': TimeLimit(75, minutes_to_ns(15)),
+    'closest_trends': TimeLimit(75, minutes_to_ns(15)),
+    'get_place_trends': TimeLimit(75, minutes_to_ns(15)),
+    'lookup_users': TimeLimit(900, minutes_to_ns(15)),
+    'search_users': TimeLimit(900, minutes_to_ns(15)),
+    'get_user': TimeLimit(900, minutes_to_ns(15)),
+}
+
+API_V2_LIMITS = {
+    'retweet': TimeLimit(300, hours_to_ns(3)),
+    'unretweet': TimeLimit(1000, hours_to_ns(24)),
+    'create_block': TimeLimit(50, minutes_to_ns(15)),
+    'destroy_block': TimeLimit(50, minutes_to_ns(15)),
+    'create_mute': TimeLimit(50, minutes_to_ns(15)),
+    'destroy_mute': TimeLimit(50, minutes_to_ns(15)),
+    'get_blocks': TimeLimit(15, minutes_to_ns(15)),
+    'get_retweets': TimeLimit(75, minutes_to_ns(15)),
+    'create_favorite': TimeLimit(1000, hours_to_ns(24)),
+    'destroy_favorite': TimeLimit(1000, hours_to_ns(24)),
+    'get_favorites': TimeLimit(75, minutes_to_ns(15)),
+    'search_tweets': TimeLimit(180, minutes_to_ns(15)),
+    'mentions_timeline': TimeLimit(180, minutes_to_ns(15)),
+    'user_timeline': TimeLimit(900, minutes_to_ns(15)),
+    'lookup_statuses': TimeLimit(900, minutes_to_ns(15)),
+    'get_status': TimeLimit(900, minutes_to_ns(15)),
+    'get_followers': TimeLimit(15, minutes_to_ns(15)),
+    'create_friendship': TimeLimit(400, hours_to_ns(500)),
+    'destroy_friendship': TimeLimit(500, hours_to_ns(500)),
+    'lookup_users': TimeLimit(900, minutes_to_ns(15)),
+    'get_user': TimeLimit(900, minutes_to_ns(15)),
+}
+
+
+class API:
+    '''
+    Wrapper around the Tweepy API with custom rate limits.
+
+    This is somewhat necessary, since Tweepy does not recognize
+    the new Twitter APIv2 rate limits, and therefore can cause apps
+    to get blocked. There's also the issue of the extremely low limits,
+    and how this differs with corporate/non-corporate accounts.
+
+    Note: you may have to specify your own version of the API root,
+    if not provided, since recent versions of Tweepy have deprecated this.
+    '''
+
+    _slots_ = ('api', 'api_root', 'local_rate_limit', 'limits')
+
+    def __init__(self, api, api_root=None, local_rate_limit=False):
+        self.api = api
+        self.api_root = api_root
+        if api_root is None:
+            self.api_root = getattr(api, 'api_root', '/1.1')
+        self.local_rate_limit = local_rate_limit
+        self.limits = {}
+
+    def wait_limit(self, method):
+        '''Determine the appropriate wait for the current API version.'''
+
+        # Get our approach rate limit.
+        try:
+            if not self.local_rate_limit:
+                # Let Tweepy do the heavy lifting.
+                return
+            elif self.api_root in ('/1', '/1.1'):
+                # Version 1/1.1 API.
+                limit = API_V11_LIMITS[method]
+            elif self.api_root == '/2':
+                # Version 2 API. Some of these still allow v1.1 access.
+                limit = API_V2_LIMITS.get(method)
+                if limit is None:
+                    limit = API_V11_LIMITS[method]
+            else:
+                raise ValueError('Invalid API root version.')
+        except KeyError:
+            # No special known rate limits, just return.
+            return
+
+        # Now, construct our rate limiter and wait.
+        if method not in self.limits:
+            self.limits[method] = RateLimit(limit.limit, limit.interval)
+        self.limits[method].wait()
+
+    def call(self, limit, names, *args, **kwds):
+        '''Call a Tweepy API method. Note that these endpoints might have aliases.'''
+
+        self.wait_limit(limit)
+        # We might have renamed methods, iterate over those.
+        for name in names:
+            method = getattr(self.api, name, None)
+            if method is not None:
+                return method(*args, **kwds)
+
+        raise ValueError('No suitable methods found.')
+
+    def __getattr__(self, attr):
+        '''Fallback to call the proper low-level method if not provided.'''
+        return getattr(self.api, attr)
+
+    def user_timeline(self, *args, **kwds):
+        return self.call('user_timeline', ['user_timeline'], *args, **kwds)
+
+    user_timeline.pagination_mode = 'id'
+
+    # User methods
+
+    def get_user(self, *args, **kwds):
+        return self.call('get_user', ['get_user'], *args, **kwds)
+
+    def me(self):
+        # Removed in Tweepy 4.0
+        return self.get_user(screen_name=self.api.auth.get_username())
+
+    def get_followers(self, *args, **kwds):
+        names = ['get_followers', 'followers']
+        return self.call('get_followers', names, *args, **kwds)
+
+    get_followers.pagination_mode = 'cursor'
+
+    # Friendship Methods
+
+    def get_friendship(self, *args, **kwds):
+        names = ['get_friendship', 'show_friendship']
+        return self.call('get_friendship', names, *args, **kwds)
+
+    # Account Methods
+
+    def verify_credentials(self, *args, **kwds):
+        return self.call('verify_credentials', ['verify_credentials'], *args, **kwds)
+
+    def rate_limit_status(self, *args, **kwds):
+        return self.call('rate_limit_status', ['rate_limit_status'], *args, **kwds)
+
+    # Block Methods
+
+    def create_block(self, *args, **kwds):
+        return self.call('create_block', ['create_block'], *args, **kwds)
+
+    def destroy_block(self, *args, **kwds):
+        return self.call('destroy_block', ['destroy_block'], *args, **kwds)
+
+    def get_blocks(self, *args, **kwds):
+        names = ['get_blocks', 'blocks']
+        return self.call('get_blocks', names, *args, **kwds)
+
+    # Help Methods
+
+    def search_tweets(self, *args, **kwds):
+        names = ['search_tweets', 'search']
+        return self.call('search_tweets', names, *args, **kwds)
+
+    search_tweets.pagination_mode = 'id'
+
+
+def generate_api(
+    timeout=DEFAULT_TIMEOUT,
+    api_root=None,
+    local_rate_limit=None,
+):
     '''Generate the API from config.'''
 
     with open(os.path.join(path.config_dir(), 'api.json')) as f:
@@ -110,13 +318,19 @@ def generate_api(timeout=DEFAULT_TIMEOUT):
     auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
     auth.set_access_token(access_token, access_token_secret)
 
-    return tweepy.API(
+    if api_root is None:
+        api_root = api_data.get('api_root')
+    if local_rate_limit is None:
+        local_rate_limit = api_data.get('local_rate_limit', False)
+
+    tweepy_api = tweepy.API(
         auth,
         timeout=timeout,
         wait_on_rate_limit=True,
         wait_on_rate_limit_notify=True,
         compression=True
     )
+    return API(tweepy_api, api_root, local_rate_limit)
 
 
 def lookup_users(
@@ -177,7 +391,7 @@ def lookup_users(
     raise ValueError('Must provide user_ids or screen_names.')
 
 
-def followers(
+def get_followers(
     api,
     user_id=None,
     screen_name=None,
@@ -214,7 +428,7 @@ def followers(
         logger.info(f'Calling Twitter API.followers.')
 
     cursor = tweepy.Cursor(
-        api.followers,
+        api.get_followers,
         user_id=user_id,
         screen_name=screen_name,
         cursor=next_cursor,
@@ -295,7 +509,7 @@ def user_timeline(
             raise
 
 
-def search(
+def search_tweets(
     api,
     query,
     logger=None,
@@ -335,10 +549,10 @@ def search(
         max_id = id_state.max_id
 
     if logger is not None:
-        logger.info(f'Calling Twitter API.search.')
+        logger.info(f'Calling Twitter API.search_tweets.')
 
     cursor = tweepy.Cursor(
-        api.search,
+        api.search_tweets,
         q=query,
         max_id=max_id,
         **kwds

@@ -171,7 +171,7 @@ def replies(tweepy_api, tweet, previous_id=None):
         query += f' max_id:{previous_id}'
     try:
         count = 0
-        for reply in api.search(
+        for reply in api.search_tweets(
             tweepy_api,
             query,
             count=100,
@@ -389,6 +389,9 @@ def block_media_replies(
     '''
 
     timeout = kwds.pop('timeout', api.DEFAULT_TIMEOUT)
+    api_root = kwds.pop('api_root', None)
+    local_rate_limit = kwds.pop('local_rate_limit', None)
+    tweepy_api = api.generate_api(timeout, api_root, local_rate_limit)
     tweepy_api = api.generate_api(timeout)
     me = tweepy_api.me()
     account = tweepy_api.get_user(screen_name=account_screen_name)
